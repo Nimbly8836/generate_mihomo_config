@@ -15,7 +15,7 @@ cp config-values.example.yaml config-values.yaml
 ruby generate_mihomo_config.rb -v config-values.yaml
 ```
 
-默认会生成 `config.yaml`。如果 `port`、`web_port`、`tun_device`、`web_secret` 没写，脚本会自动补默认值。
+默认会生成 `config.yaml`。如果 `port`、`web_port`、`tun_device`、`dns_split_cn_foreign`、`web_secret` 没写，脚本会自动补默认值。
 
 ## values 结构
 
@@ -28,6 +28,11 @@ local_proxies: []
 
 local_rules:
   - DOMAIN-SUFFIX,example.com,default
+
+# 是否按国内外分流 DNS
+# false: 默认值，不区分国内外，不启用 fallback
+# true: 启用 nameserver-policy + fallback + fallback-filter
+dns_split_cn_foreign: false
 ```
 
 字段说明：
@@ -35,6 +40,7 @@ local_rules:
 - `proxy_providers`: 远程订阅列表，至少需要 `name` 和 `url`
 - `local_proxies`: 本地静态节点列表
 - `local_rules`: 额外自定义规则，按写入顺序插入到规则最前面
+- `dns_split_cn_foreign`: 是否按国内外分流 DNS；默认 `false`
 
 ## 当前规则约定
 

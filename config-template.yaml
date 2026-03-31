@@ -128,6 +128,7 @@ dns:
   direct-nameserver:
     - https://doh.pub/dns-query
     - https://dns.alidns.com/dns-query
+<% if dns_split_cn_foreign -%>
   # 是否让 direct-nameserver 遵循 nameserver-policy
   direct-nameserver-follow-policy: true
 
@@ -138,7 +139,7 @@ dns:
     - tls://8.8.4.4
     - tls://1.0.0.1
 
-  # 特定域名强制走指定 DNS
+  # 开启后按国内外域名区分 DNS
   nameserver-policy:
     # 内网和中国域名优先走国内 DNS
     "geosite:private,cn":
@@ -170,6 +171,7 @@ dns:
       - "+.youtube.com"
       - "+.openai.com"
       - "+.chatgpt.com"
+<% end -%>
 
   # 这些域名不走 fake-ip，避免兼容性问题
   fake-ip-filter:

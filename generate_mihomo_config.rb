@@ -11,7 +11,8 @@ DEFAULT_OUTPUT = "config.yaml"
 DEFAULT_SCALARS = {
   "port" => 7890,
   "web_port" => 9090,
-  "tun_device" => "utun-mihomo"
+  "tun_device" => "utun-mihomo",
+  "dns_split_cn_foreign" => false
 }.freeze
 
 def usage(parser)

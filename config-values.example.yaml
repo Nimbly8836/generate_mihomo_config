@@ -1,9 +1,13 @@
 # 最小可用示例。
 # 下列字段都可以省略，生成器会自动补默认值：
-# - port: 7890
-# - web_port: 9090
-# - tun_device: utun-mihomo
-# - web_secret: 自动生成一个 UUID
+# 如果你想覆盖默认值，可以显式写出来：
+# port: 7890
+# web_port: 9090
+# tun_device: utun-mihomo
+# 是否按国内外分流 DNS；默认 false，不启用 fallback
+# dns_split_cn_foreign: false
+# web_secret: "change-me"
+
 
 # 远程订阅列表；name 不能重复
 proxy_providers:
@@ -15,9 +19,3 @@ local_proxies: []
 
 # 额外自定义规则；没有就留空 []
 local_rules: []
-
-# 如果你想覆盖默认值，可以显式写出来：
-# port: 7890
-# web_port: 9090
-# tun_device: utun-mihomo
-# web_secret: "change-me"
