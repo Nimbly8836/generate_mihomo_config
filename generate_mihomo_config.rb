@@ -6,7 +6,7 @@ require "optparse"
 require "psych"
 require "securerandom"
 
-DEFAULT_TEMPLATE = "config-template.yaml"
+DEFAULT_TEMPLATE = "config-template.yaml.erb"
 DEFAULT_OUTPUT = "config.yaml"
 DEFAULT_SCALARS = {
   "port" => 7890,
