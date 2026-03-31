@@ -95,6 +95,8 @@ tun:
   strict-route: false
   # TUN MTU
   mtu: 1500
+  # 禁用 ipv6
+  inet6: false
 
 # ========================
 # DNS 设置
