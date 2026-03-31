@@ -1,0 +1,23 @@
+# 最小可用示例。
+# 下列字段都可以省略，生成器会自动补默认值：
+# - port: 7890
+# - web_port: 9090
+# - tun_device: utun-mihomo
+# - web_secret: 自动生成一个 UUID
+
+# 远程订阅列表；name 不能重复
+proxy_providers:
+  - name: default_provider
+    url: "https://example.com/subscription.yaml"
+
+# 本地静态代理节点；没有就留空 []
+local_proxies: []
+
+# 额外自定义规则；没有就留空 []
+local_rules: []
+
+# 如果你想覆盖默认值，可以显式写出来：
+# port: 7890
+# web_port: 9090
+# tun_device: utun-mihomo
+# web_secret: "change-me"

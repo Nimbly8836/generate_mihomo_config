@@ -1,0 +1,590 @@
+# ========================
+# 基础运行参数
+# ========================
+
+# 混合端口，HTTP / SOCKS5 共用
+mixed-port: <%= yaml_scalar(port) %>
+# 是否允许局域网其他设备连接
+allow-lan: true
+# 运行模式，常用 rule
+mode: rule
+# 日志级别，可选 silent / error / warning / info / debug
+log-level: info
+# 是否启用 IPv6
+ipv6: false
+# 是否启用统一延迟计算，测速结果更稳定
+unified-delay: true
+# 是否并发建立 TCP 连接，通常建议开启
+tcp-concurrent: true
+# 是否启用 geodata 规则集
+geodata-mode: true
+# 进程匹配模式，strict 更稳妥
+find-process-mode: strict
+# TLS 指纹策略，random 可降低特征固定带来的风险
+global-client-fingerprint: random
+# 长连接保活间隔，单位秒
+keep-alive-interval: 1800
+
+# ========================
+# 外部控制与面板
+# ========================
+
+# 外部控制地址，默认只监听本机
+external-controller: <%= yaml_scalar(":#{web_port}") %>
+# Web 面板目录
+external-ui: "./Yacd-meta-gh-pages/"
+# 面板/API 鉴权密码
+secret: <%= yaml_scalar(web_secret) %>
+
+profile:
+  # 记住策略组选择
+  store-selected: true
+  # 记住 fake-ip 映射
+  store-fake-ip: true
+
+# ========================
+# Geo 数据源
+# ========================
+
+geox-url:
+  # GeoIP 数据
+  geoip: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geoip.dat"
+  # GeoSite 数据
+  geosite: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/geosite.dat"
+  # 国家库 mmdb 数据
+  mmdb: "https://testingcf.jsdelivr.net/gh/MetaCubeX/meta-rules-dat@release/country.mmdb"
+
+# ========================
+# 域名嗅探
+# ========================
+
+sniffer:
+  # 是否启用域名嗅探
+  enable: true
+  sniff:
+    TLS:
+      # 对 TLS 流量做嗅探的端口
+      ports: [443, 8443]
+    HTTP:
+      # 对 HTTP 流量做嗅探的端口
+      ports: [80, 8080-8880]
+      # 用嗅探到的域名覆盖目标地址
+      override-destination: true
+
+# ========================
+# TUN 模式
+# ========================
+
+tun:
+  # 是否启用 TUN
+  enable: true
+  # TUN 协议栈，gvisor 兼容性较好
+  stack: gvisor
+  dns-hijack:
+    # 劫持所有 UDP 53 请求
+    - "any:53"
+    # 劫持所有 TCP 53 请求
+    - "tcp://any:53"
+  # 自动添加路由
+  auto-route: true
+  # 自动识别出口网卡
+  auto-detect-interface: true
+  # TUN 设备名称
+  device: <%= yaml_scalar(tun_device) %>
+  # 是否启用严格路由
+  strict-route: false
+  # TUN MTU
+  mtu: 1500
+
+# ========================
+# DNS 设置
+# ========================
+
+dns:
+  # 是否启用内置 DNS
+  enable: true
+  # DNS 是否启用 IPv6
+  ipv6: false
+  # 增强模式，fake-ip 适合大多数场景
+  enhanced-mode: fake-ip
+  # fake-ip 地址池范围
+  fake-ip-range: 198.18.0.1/16
+
+  # 仅用于解析下方 DoH/DoT 服务器自身域名的传统 DNS
+  default-nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+    - 1.1.1.1
+    - 8.8.8.8
+
+  # 主 DNS，优先使用国内低延迟解析器
+  nameserver:
+    - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
+
+  # 直连请求二次解析使用的 DNS
+  direct-nameserver:
+    - https://doh.pub/dns-query
+    - https://dns.alidns.com/dns-query
+  # 是否让 direct-nameserver 遵循 nameserver-policy
+  direct-nameserver-follow-policy: true
+
+  # 回退 DNS，优先使用境外解析器提高抗污染能力
+  fallback:
+    - https://1.1.1.1/dns-query
+    - https://dns.google/dns-query
+    - tls://8.8.4.4
+    - tls://1.0.0.1
+
+  # 特定域名强制走指定 DNS
+  nameserver-policy:
+    # 内网和中国域名优先走国内 DNS
+    "geosite:private,cn":
+      - https://doh.pub/dns-query
+      - https://dns.alidns.com/dns-query
+    "+.lan":
+      - 223.5.5.5
+    "+.local":
+      - 223.5.5.5
+    "+.arpa":
+      - 223.5.5.5
+
+  # 满足条件时优先采用 fallback 结果
+  fallback-filter:
+    # 对解析结果做 GeoIP 判断
+    geoip: true
+    # 以中国大陆为可信区域
+    geoip-code: CN
+    # 这些 geosite 命中时优先 fallback
+    geosite:
+      - gfw
+    # 这些网段结果视为可疑
+    ipcidr:
+      - 240.0.0.0/4
+    # 这些域名优先使用 fallback 结果
+    domain:
+      - "+.google.com"
+      - "+.facebook.com"
+      - "+.youtube.com"
+      - "+.openai.com"
+      - "+.chatgpt.com"
+
+  # 这些域名不走 fake-ip，避免兼容性问题
+  fake-ip-filter:
+    - "*.lan"
+    - "*.localdomain"
+    - "*.example"
+    - "*.invalid"
+    - "*.localhost"
+    - "*.test"
+    - "*.local"
+    - "*.home.arpa"
+    - "*.time.edu.cn"
+    - "*.ntp.org.cn"
+    - "+.pool.ntp.org"
+    - "time.*.com"
+    - "time.*.gov"
+    - "time.*.edu.cn"
+    - "time.*.apple.com"
+    - "time1.*.com"
+    - "time2.*.com"
+    - "time3.*.com"
+    - "time4.*.com"
+    - "time5.*.com"
+    - "time6.*.com"
+    - "time7.*.com"
+    - "ntp.*.com"
+    - "ntp1.*.com"
+    - "ntp2.*.com"
+    - "ntp3.*.com"
+    - "ntp4.*.com"
+    - "ntp5.*.com"
+    - "ntp6.*.com"
+    - "ntp7.*.com"
+    - "music.163.com"
+    - "*.music.163.com"
+    - "*.126.net"
+    - "musicapi.taihe.com"
+    - "music.taihe.com"
+    - "songsearch.kugou.com"
+    - "trackercdn.kugou.com"
+    - "*.kuwo.cn"
+    - "api-jooxtt.sanook.com"
+    - "api.joox.com"
+    - "joox.com"
+    - "y.qq.com"
+    - "*.y.qq.com"
+    - "streamoc.music.tc.qq.com"
+    - "mobileoc.music.tc.qq.com"
+    - "isure.stream.qqmusic.qq.com"
+    - "dl.stream.qqmusic.qq.com"
+    - "aqqmusic.tc.qq.com"
+    - "amobile.music.tc.qq.com"
+    - "*.xiami.com"
+    - "*.music.migu.cn"
+    - "music.migu.cn"
+    - "*.msftconnecttest.com"
+    - "*.msftncsi.com"
+    - "msftconnecttest.com"
+    - "msftncsi.com"
+    - "localhost.ptlogin2.qq.com"
+    - "localhost.sec.qq.com"
+    - "+.srv.nintendo.net"
+    - "+.stun.playstation.net"
+    - "xbox.*.microsoft.com"
+    - "xnotify.xboxlive.com"
+    - "+.battlenet.com.cn"
+    - "+.wotgame.cn"
+    - "+.wggames.cn"
+    - "+.wowsgame.cn"
+    - "+.wargaming.net"
+    - "proxy.golang.org"
+    - "stun.*.*"
+    - "stun.*.*.*"
+    - "+.stun.*.*"
+    - "+.stun.*.*.*"
+    - "+.stun.*.*.*.*"
+    - "heartbeat.belkin.com"
+    - "*.linksys.com"
+    - "*.linksyssmartwifi.com"
+    - "*.router.asus.com"
+    - "mesu.apple.com"
+    - "swscan.apple.com"
+    - "swquery.apple.com"
+    - "swdownload.apple.com"
+    - "swcdn.apple.com"
+    - "swdist.apple.com"
+    - "lens.l.google.com"
+    - "stun.l.google.com"
+    - "+.nflxvideo.net"
+    - "*.square-enix.com"
+    - "*.finalfantasyxiv.com"
+    - "*.ffxiv.com"
+
+# ========================
+# 复用锚点
+# ========================
+
+# 通用策略组模板
+pr: &pr
+  # 手动选择类型
+  type: select
+  proxies:
+    - default
+    - hong_kong
+    - taiwan
+    - japan
+    - singapore
+    - united_states
+    - other_regions
+    - all_nodes
+    - auto_select
+    - private_vps
+    - DIRECT
+
+# 亚洲站点优先直连，不包含香港
+direct_asia_no_hk_pr: &direct_asia_no_hk_pr
+  type: select
+  proxies:
+    - DIRECT
+    - taiwan
+    - japan
+    - singapore
+    - other_regions
+
+# 亚洲站点优先直连，包含香港
+direct_asia_pr: &direct_asia_pr
+  type: select
+  proxies:
+    - DIRECT
+    - hong_kong
+    - taiwan
+    - japan
+    - singapore
+    - other_regions
+
+# 订阅提供者的默认参数
+provider_defaults: &provider_defaults
+  # 从远端拉取订阅
+  type: http
+  # 订阅刷新间隔，单位秒
+  interval: 3600
+  health-check:
+    # 是否启用健康检查
+    enable: true
+    # 健康检查地址
+    url: "https://www.gstatic.com/generate_204"
+    # 健康检查间隔，单位秒
+    interval: 300
+
+# 使用订阅节点的策略组默认参数
+provider_use_defaults: &provider_use_defaults
+  # 手动选择节点组
+  type: select
+<% if provider_names.empty? -%>
+  # 当前未配置任何远程订阅
+  use: []
+<% else -%>
+  # 使用 values 文件中定义的所有远程订阅
+  use:
+<% provider_names.each do |name| -%>
+    - <%= name %>
+<% end -%>
+<% end -%>
+
+# ========================
+# 远程订阅
+# ========================
+
+proxy-providers:
+<% if proxy_providers.empty? -%>
+  # 没有远程订阅时保留空映射
+  {}
+<% else -%>
+<% proxy_providers.each do |provider| -%>
+  # 远程订阅：<%= provider.fetch("name") %>
+  <%= provider.fetch("name") %>:
+<% if provider_uses_defaults?(provider) -%>
+    <<: *provider_defaults
+<% end -%>
+<%= render_hash(provider_body(provider), indent: 4) -%>
+<% end -%>
+<% end -%>
+
+# ========================
+# 规则集订阅
+# ========================
+
+rule-providers:
+  # 广告域名规则集
+  adblock_mihomo:
+    type: http
+    behavior: domain
+    format: yaml
+    url: "https://raw.githubusercontent.com/217heidai/adblockfilters/main/rules/adblockmihomo.yaml"
+    path: "./rule_providers/adblock_mihomo.yaml"
+    interval: 28800
+
+# ========================
+# 本地静态节点
+# ========================
+
+proxies:
+<%= render_list(local_proxies, indent: 2) -%>
+
+# ========================
+# 策略组
+# ========================
+
+proxy-groups:
+  # 全局默认出口
+  - name: default
+    type: select
+    proxies:
+      - DIRECT
+      - hong_kong
+      - taiwan
+      - japan
+      - singapore
+      - united_states
+      - other_regions
+      - all_nodes
+      - auto_select
+      - private_vps
+
+  # 本地静态节点入口，便于手动切换
+  - name: local_proxy
+    type: select
+<% if local_proxy_names.empty? -%>
+    proxies:
+      - DIRECT
+<% else -%>
+    proxies:
+<% local_proxy_names.each do |name| -%>
+      - <%= name %>
+<% end -%>
+<% end -%>
+
+  # 广告拦截动作
+  - name: ad_block
+    type: select
+    proxies:
+      - REJECT
+      - DIRECT
+
+  # 业务策略组
+  - name: steam
+    <<: *pr
+
+  - name: apple
+    <<: *direct_asia_no_hk_pr
+
+  - name: google
+    <<: *pr
+
+  - name: openai
+    type: select
+    proxies:
+      - taiwan
+      - japan
+      - singapore
+      - united_states
+      - other_regions
+
+  - name: telegram
+    <<: *pr
+
+  - name: twitter
+    <<: *pr
+
+  - name: ehentai
+    <<: *pr
+
+  - name: bilibili
+    <<: *direct_asia_pr
+
+  - name: bilibili_sea
+    <<: *pr
+
+  - name: bahamut
+    <<: *pr
+
+  - name: youtube
+    <<: *pr
+
+  - name: netflix
+    <<: *pr
+
+  - name: spotify
+    <<: *pr
+
+  - name: github
+    <<: *pr
+
+  - name: domestic
+    type: select
+    proxies:
+      - DIRECT
+      - default
+      - hong_kong
+      - taiwan
+      - japan
+      - singapore
+      - united_states
+      - other_regions
+      - all_nodes
+      - auto_select
+
+  - name: other
+    <<: *pr
+
+  # 按地区聚合的节点组
+  - name: private_vps
+    <<: *provider_use_defaults
+    filter: "(?i)(_vps_).*"
+
+  - name: hong_kong
+    <<: *provider_use_defaults
+    filter: "(?i)(🇭🇰|香港|港(?![澳台])|(^|[^a-z])(hk|hkg|hong[ _-]?kong)([^a-z]|$))"
+    exclude-filter: "(?i)(澳門|澳门|macao|macau)"
+
+  - name: taiwan
+    <<: *provider_use_defaults
+    filter: "(?i)(🇹🇼|台湾|(^|[^a-z])(tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
+    exclude-filter: "(?i)(hong[ _-]?kong|hk|hkg|macau|macao)"
+
+  - name: japan
+    <<: *provider_use_defaults
+    filter: "(?i)(🇯🇵|日本|(^|[^a-z])(jp|jpn|japan|tokyo|osaka)([^a-z]|$))"
+
+  - name: united_states
+    <<: *provider_use_defaults
+    filter: "(?i)(🇺🇸|美国|(^|[^a-z])(us|usa|united[ _-]?states|america)([^a-z]|$)|los[ _-]?angeles|san[ _-]?jose|silicon[ _-]?valley|new[ _-]?york|seattle|chicago)"
+    exclude-filter: "(?i)(australia|au|aus)"
+
+  - name: singapore
+    <<: *provider_use_defaults
+    filter: "(?i)(🇸🇬|新加坡|狮城|(^|[^a-z])(sg|sgp|singapore)([^a-z]|$))"
+
+  - name: other_regions
+    <<: *provider_use_defaults
+    filter: ".+"
+    exclude-filter: "(?i)(🇭🇰|🇹🇼|🇯🇵|🇺🇸|🇸🇬|🇨🇳|香港|台湾|日本|美国|新加坡|(^|[^a-z])(hk|hkg|hong[ _-]?kong|tw|twn|tpe|taipei|taiwan|jp|jpn|japan|us|usa|united[ _-]?states|america|sg|sgp|singapore)([^a-z]|$))"
+
+  - name: all_nodes
+    <<: *provider_use_defaults
+
+  # 自动测速选择节点
+  - name: auto_select
+    type: url-test
+    tolerance: 2
+    proxies:
+      - DIRECT
+<% if provider_names.empty? -%>
+    use: []
+<% else -%>
+    use:
+<% provider_names.each do |name| -%>
+      - <%= name %>
+<% end -%>
+<% end -%>
+
+# ========================
+# 规则
+# ========================
+
+rules:
+  # SSH 相关流量始终直连
+  - PROCESS-NAME,ssh,DIRECT
+  - PROCESS-NAME,scp,DIRECT
+  - PROCESS-NAME,sftp,DIRECT
+  - PROCESS-NAME,rsync,DIRECT
+  - DST-PORT,22,DIRECT
+
+  # values 文件中的自定义规则
+<% local_rules.each do |rule| -%>
+  - <%= rule %>
+<% end -%>
+
+  # 广告过滤
+  - RULE-SET,adblock_mihomo,ad_block
+
+  # 站点分流
+  - DOMAIN-SUFFIX,chatgpt.com,openai
+  - DOMAIN-SUFFIX,oaistatic.com,openai
+  - DOMAIN-SUFFIX,oaiusercontent.com,openai
+  - DOMAIN-SUFFIX,openai.com,openai
+  - DOMAIN-SUFFIX,openai.com.cdn.cloudflare.net,openai
+  - DOMAIN-SUFFIX,openaiapi-site.azureedge.net,openai
+  - DOMAIN-SUFFIX,openaicom-api-bdcpf8c6d2e9atf6.z01.azurefd.net,openai
+  - DOMAIN-SUFFIX,openaicomproductionae4b.blob.core.windows.net,openai
+  - DOMAIN-SUFFIX,production-openaicom-storage.azureedge.net,openai
+
+  - GEOSITE,apple,apple
+  - GEOSITE,apple-cn,apple
+  - GEOSITE,steam,steam
+  - GEOSITE,biliintl,bilibili_sea
+  - GEOSITE,ehentai,ehentai
+  - GEOSITE,github,github
+  - GEOSITE,twitter,twitter
+  - GEOSITE,youtube,youtube
+  - GEOSITE,google,google
+  - GEOSITE,google-cn,google
+  - GEOSITE,telegram,telegram
+  - GEOSITE,netflix,netflix
+  - GEOSITE,bilibili,bilibili
+  - GEOSITE,bahamut,bahamut
+  - GEOSITE,spotify,spotify
+  - GEOSITE,geolocation-!cn,other
+
+  - GEOIP,google,google
+  - GEOIP,netflix,netflix
+  - GEOIP,telegram,telegram
+  - GEOIP,twitter,twitter
+
+  # 中国大陆流量优先直连
+  - GEOSITE,CN,domestic
+  - GEOIP,CN,domestic
+
+  # 其他流量走兜底策略
+  - MATCH,other
