@@ -534,17 +534,17 @@ proxy-groups:
 # ========================
 
 rules:
+  # values 文件中的自定义规则，优先级最高
+<% local_rules.each do |rule| -%>
+  - <%= rule %>
+<% end -%>
+
   # SSH 相关流量始终直连
   - PROCESS-NAME,ssh,DIRECT
   - PROCESS-NAME,scp,DIRECT
   - PROCESS-NAME,sftp,DIRECT
   - PROCESS-NAME,rsync,DIRECT
   - DST-PORT,22,DIRECT
-
-  # values 文件中的自定义规则
-<% local_rules.each do |rule| -%>
-  - <%= rule %>
-<% end -%>
 
   # 广告过滤
   - RULE-SET,adblock_mihomo,ad_block
@@ -575,7 +575,6 @@ rules:
   - GEOSITE,bilibili,bilibili
   - GEOSITE,bahamut,bahamut
   - GEOSITE,spotify,spotify
-  - GEOSITE,geolocation-!cn,other
 
   - GEOIP,google,google
   - GEOIP,netflix,netflix
@@ -585,6 +584,9 @@ rules:
   # 中国大陆流量优先直连
   - GEOSITE,CN,domestic
   - GEOIP,CN,domestic
+
+  # 非中国大陆站点默认走全局代理，优先级放在兜底前
+  - GEOSITE,geolocation-!cn,default
 
   # 其他流量走兜底策略
   - MATCH,other
