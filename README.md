@@ -32,20 +32,35 @@ local_proxies: []
 #     cipher: aes-128-gcm
 #     password: "change-me"
 
+local_proxy_groups: []
+  # - name: custom_group
+  #   type: select
+  #   proxies:
+  #     - DIRECT
+  #     - hong_kong
+  #     - japan
+
 local_rules:
-  - DOMAIN-SUFFIX,example.com,default
+  - DOMAIN-SUFFIX,example.com,custom_group
 
 # 是否按国内外分流 DNS
 # false: 默认值，不区分国内外，不启用 fallback
 # true: 启用 nameserver-policy + fallback + fallback-filter
 dns_split_cn_foreign: false
+
+# 额外追加到 dns.fake-ip-filter 的域名
+fake_ip_filter:
+  - "+.example.com"
+  - "stun.example.net"
 ```
 
 字段说明：
 
 - `proxy_providers`: 可选的远程订阅列表；每个条目都需要 `name` 和 `url`
 - `local_proxies`: 本地静态节点列表，可在没有远程订阅时独立使用
+- `local_proxy_groups`: 额外自定义策略组，直接按 Mihomo `proxy-groups` 项的结构填写
 - `local_rules`: 额外自定义规则，按写入顺序插入到规则最前面
+- `fake_ip_filter`: 额外追加到 `dns.fake-ip-filter` 的域名列表；不会覆盖模板内置默认项
 - `dns_split_cn_foreign`: 是否按国内外分流 DNS；默认 `false`
 
 ### 节点来源模式
@@ -58,11 +73,45 @@ dns_split_cn_foreign: false
 
 ## 当前规则约定
 
+- `local_proxy_groups` 会追加到 `proxy-groups:` 末尾，再进入 `rules:` 渲染
 - `local_rules` 放在 `rules:` 最上面，优先级最高
+- `fake_ip_filter` 会追加到 `dns.fake-ip-filter:` 末尾，并自动跳过与默认列表重复的项
 - 中国大陆流量优先走 `domestic`
 - `GEOSITE,geolocation-!cn` 默认走 `default`
 - `GEOSITE,geolocation-!cn` 放在接近末尾的位置，只在前面的更具体规则都未命中时生效
 - 最后一条仍然是 `MATCH,other`，作为最终兜底
+
+## 直接增加一个分组和规则
+
+```yaml
+proxy_providers:
+  - name: default_provider
+    url: "https://example.com/subscription.yaml"
+
+local_proxies: []
+
+local_proxy_groups:
+  - name: custom_group
+    type: select
+    proxies:
+      - DIRECT
+      - hong_kong
+      - japan
+      - singapore
+
+local_rules:
+  - DOMAIN-SUFFIX,example.com,custom_group
+
+fake_ip_filter:
+  - "+.example.com"
+  - "stun.example.net"
+```
+
+说明：
+
+- `local_proxy_groups` 里直接写完整策略组，不支持复用模板内部的 anchor，比如 `<<: *pr`
+- `local_rules` 的第三列写你上面定义的分组名即可，比如 `custom_group`
+- `fake_ip_filter` 只做追加，不会删掉模板里的默认兼容域名
 
 ## 文件说明
 

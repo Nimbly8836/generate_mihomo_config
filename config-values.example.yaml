@@ -33,5 +33,25 @@ local_proxies: []
 # proxy_providers 和 local_proxies 都为空时，不使用代理节点，代理出口回退到 DIRECT；
 # 现有 REJECT/广告拦截规则仍然生效，配置无需订阅或节点也可正常启动。
 
+# 额外自定义策略组；没有就留空 []
+# 注意：
+# 1. 这里直接写 Mihomo 的 proxy-groups 项
+# 2. 需要完整写出字段，不能使用模板里的 YAML anchor（例如 <<: *pr）
+# 3. 下面只是示例，实际不用时保留 []
+local_proxy_groups: []
+#  - name: custom_group
+#    type: select
+#    proxies:
+#      - DIRECT
+#      - hong_kong
+#      - japan
+#      - singapore
+
 # 额外自定义规则；没有就留空 []
 local_rules: []
+#  - DOMAIN-SUFFIX,example.com,custom_group
+
+# 额外追加到 dns.fake-ip-filter 的域名；没有就留空 []
+fake_ip_filter: []
+#  - "+.example.com"
+#  - "stun.example.net"

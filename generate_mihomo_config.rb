@@ -53,17 +53,64 @@ def apply_defaults(values)
   [normalized, applied]
 end
 
+def yaml_scalar(value)
+  dumped = Psych.dump(value)
+  dumped.sub(/\A---\s*\n?/, "").sub(/\n\.\.\.\s*\z/, "").strip
+end
+
+def append_fake_ip_filter(output, extra_filters)
+  return output if extra_filters.empty?
+
+  parsed_output = Psych.safe_load(output, permitted_classes: [], aliases: true) || {}
+  existing_filters = Array(parsed_output.dig("dns", "fake-ip-filter")).map(&:to_s)
+  filters_to_insert = extra_filters.map(&:to_s).uniq - existing_filters
+  return output if filters_to_insert.empty?
+
+  lines = output.lines
+  key_index = lines.index { |line| line.match?(/^\s*fake-ip-filter:\s*$/) }
+
+  unless key_index
+    warn "Could not find dns.fake-ip-filter in rendered output"
+    exit 1
+  end
+
+  key_indent = lines[key_index][/^\s*/].size
+  insert_at = key_index + 1
+
+  while insert_at < lines.length
+    line = lines[insert_at]
+    stripped = line.strip
+    indent = line[/^\s*/].size
+
+    break if stripped.empty? && indent <= key_indent
+    break if stripped.start_with?("#") && indent <= key_indent
+    break if !stripped.empty? && indent <= key_indent
+
+    insert_at += 1
+  end
+
+  new_lines = filters_to_insert.map do |filter|
+    "#{" " * (key_indent + 2)}- #{yaml_scalar(filter)}\n"
+  end
+
+  lines.insert(insert_at, *new_lines)
+  lines.join
+end
+
 class TemplateContext
   PROVIDER_REQUIRED_KEYS = %w[name url].freeze
   LOCAL_PROXY_REQUIRED_KEYS = %w[name type server port].freeze
+  LOCAL_PROXY_GROUP_REQUIRED_KEYS = %w[name type].freeze
 
-  attr_reader :proxy_providers, :local_proxies, :local_rules
+  attr_reader :proxy_providers, :local_proxies, :local_proxy_groups, :local_rules, :fake_ip_filter
 
   def initialize(values)
     @values = values.transform_keys(&:to_s)
     @proxy_providers = normalize_hash_array(@values["proxy_providers"], "proxy_providers")
     @local_proxies = normalize_hash_array(@values["local_proxies"], "local_proxies")
+    @local_proxy_groups = normalize_hash_array(@values["local_proxy_groups"], "local_proxy_groups")
     @local_rules = Array(@values["local_rules"]).map(&:to_s)
+    @fake_ip_filter = normalize_string_array(optional_value("fake_ip_filter", "fake-ip-filter"), "fake_ip_filter")
     validate!
   end
 
@@ -129,6 +176,19 @@ class TemplateContext
 
   private
 
+  def optional_value(*keys)
+    found_keys = keys.select { |key| @values.key?(key) }
+
+    if found_keys.length > 1
+      warn "Only one of #{keys.join(' / ')} can be provided"
+      exit 1
+    end
+
+    return nil if found_keys.empty?
+
+    @values[found_keys.first]
+  end
+
   def normalize_hash_array(value, key)
     case value
     when nil
@@ -148,9 +208,29 @@ class TemplateContext
     end
   end
 
+  def normalize_string_array(value, key)
+    case value
+    when nil
+      []
+    when Array
+      value.map do |item|
+        unless item.is_a?(String)
+          warn "#{key} must be an array of strings"
+          exit 1
+        end
+
+        item
+      end
+    else
+      warn "#{key} must be an array"
+      exit 1
+    end
+  end
+
   def validate!
     validate_hashes!(proxy_providers, PROVIDER_REQUIRED_KEYS, "proxy_providers")
     validate_hashes!(local_proxies, LOCAL_PROXY_REQUIRED_KEYS, "local_proxies")
+    validate_hashes!(local_proxy_groups, LOCAL_PROXY_GROUP_REQUIRED_KEYS, "local_proxy_groups")
   end
 
   def validate_hashes!(items, required_keys, label)
@@ -262,6 +342,7 @@ values, applied_defaults = apply_defaults(load_yaml_file(options[:values]))
 template = File.read(options[:template])
 context = TemplateContext.new(values)
 output = ERB.new(template, trim_mode: "-").result(context.get_binding)
+output = append_fake_ip_filter(output, context.fake_ip_filter)
 
 File.write(options[:output], output)
 warn "Using default port=#{applied_defaults['port']}" if applied_defaults.key?("port")

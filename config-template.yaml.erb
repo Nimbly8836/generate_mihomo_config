@@ -533,6 +533,12 @@ proxy-groups:
 <% end -%>
 <% end -%>
 
+<% unless local_proxy_groups.empty? -%>
+
+  # values 文件中的自定义策略组
+<%= render_list(local_proxy_groups, indent: 2) -%>
+<% end -%>
+
 # ========================
 # 规则
 # ========================
