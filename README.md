@@ -50,11 +50,11 @@ dns_split_cn_foreign: false
 
 ### 节点来源模式
 
-1. **仅远程订阅**：现有的地区、全部节点和自动测速策略组继续使用订阅节点。
+1. **仅远程订阅**：所有基于 provider 的策略组，包括地区组、`private_vps`、`all_nodes` 和 `auto_select`，继续使用订阅节点。
 2. **仅手写节点**：手写节点只直接属于 `local_proxy`；其他节点策略组通过 `local_proxy` 使用这些节点。
-3. **两者均为空**：各节点策略组通过 `local_proxy` 解析到 `DIRECT`，生成的配置仍可正常启动。
+3. **两者均为空**：不使用代理节点，代理出口回退到 `DIRECT`；现有的 `REJECT`/广告拦截规则仍然生效，生成的配置无需订阅或节点也可正常启动。
 
-模板已移除顶层的 `global-client-fingerprint`。`client-fingerprint` 是否适用取决于节点协议；需要时应配置在 `local_proxies` 中对应的本地节点上。
+模板已移除顶层的 `global-client-fingerprint`。上面的 Shadowsocks（`type: ss`）示例不需要 `client-fingerprint`。仅当 Mihomo 文档明确所选协议支持该字段时才使用：手写本地节点应将其放在对应的 `local_proxies` 节点上；订阅节点则必须由订阅/provider 内容提供，因为生成器不会改写 provider 节点。
 
 ## 当前规则约定
 

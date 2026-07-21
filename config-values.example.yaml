@@ -27,8 +27,11 @@ local_proxies: []
 #     cipher: aes-128-gcm
 #     password: "change-me"
 
-# client-fingerprint 是否适用取决于节点协议；需要时请配置在对应的本地节点上。
-# proxy_providers 和 local_proxies 都为空时，生成的配置仅使用 DIRECT。
+# 上面的 Shadowsocks（type: ss）示例不需要 client-fingerprint。
+# 仅当 Mihomo 文档明确所选协议支持该字段时才使用：手写节点放在对应的 local_proxies 节点上；
+# 订阅节点必须由订阅/provider 内容提供，因为生成器不会改写 provider 节点。
+# proxy_providers 和 local_proxies 都为空时，不使用代理节点，代理出口回退到 DIRECT；
+# 现有 REJECT/广告拦截规则仍然生效，配置无需订阅或节点也可正常启动。
 
 # 额外自定义规则；没有就留空 []
 local_rules: []
