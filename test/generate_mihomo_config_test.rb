@@ -258,6 +258,25 @@ class GenerateMihomoConfigTest < Minitest::Test
     end
   end
 
+  def test_generated_config_omits_global_client_fingerprint
+    values = empty_provider_values([])
+
+    with_generated_config(values) do |config, _output_path|
+      refute config.key?("global-client-fingerprint")
+    end
+  end
+
+  def test_node_level_client_fingerprint_passes_through
+    proxy = handwritten_proxy(extra: { "client-fingerprint" => "chrome" })
+    values = empty_provider_values([proxy])
+
+    with_generated_config(values) do |config, _output_path|
+      generated_proxy = config.fetch("proxies").find { |item| item.fetch("name") == proxy.fetch("name") }
+
+      assert_equal proxy, generated_proxy
+    end
+  end
+
   def test_handwritten_only_config_validates_with_mihomo
     skip "mihomo executable is unavailable" unless mihomo_available?
 
