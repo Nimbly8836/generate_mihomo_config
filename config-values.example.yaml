@@ -9,13 +9,26 @@
 # web_secret: "change-me"
 
 
-# 远程订阅列表；name 不能重复
-proxy_providers:
-  - name: default_provider
-    url: "https://example.com/subscription.yaml"
+# 远程订阅列表（可选）；name 不能重复
+proxy_providers: []
+# 如需使用远程订阅，请将上面的 [] 替换为：
+# proxy_providers:
+#   - name: default_provider
+#     url: "https://example.com/subscription.yaml"
 
-# 本地静态代理节点；没有就留空 []
+# 本地静态代理节点（可独立使用）；没有就留空 []
 local_proxies: []
+# 如需使用手写节点，请将上面的 [] 替换为：
+# local_proxies:
+#   - name: local_ss
+#     type: ss
+#     server: "127.0.0.1"
+#     port: 8388
+#     cipher: aes-128-gcm
+#     password: "change-me"
+
+# client-fingerprint 是否适用取决于节点协议；需要时请配置在对应的本地节点上。
+# proxy_providers 和 local_proxies 都为空时，生成的配置仅使用 DIRECT。
 
 # 额外自定义规则；没有就留空 []
 local_rules: []
