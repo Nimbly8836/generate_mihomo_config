@@ -326,8 +326,9 @@ provider_use_defaults: &provider_use_defaults
   # 手动选择节点组
   type: select
 <% if provider_names.empty? -%>
-  # 当前未配置任何远程订阅
-  use: []
+  # 没有远程订阅时统一使用本地静态节点组；该组自身会以 DIRECT 兜底
+  proxies:
+    - local_proxy
 <% else -%>
   # 使用 values 文件中定义的所有远程订阅
   use:
@@ -522,11 +523,12 @@ proxy-groups:
   - name: auto_select
     type: url-test
     tolerance: 2
+<% if provider_names.empty? -%>
+    proxies:
+      - local_proxy
+<% else -%>
     proxies:
       - DIRECT
-<% if provider_names.empty? -%>
-    use: []
-<% else -%>
     use:
 <% provider_names.each do |name| -%>
       - <%= name %>

@@ -117,4 +117,77 @@ class GenerateMihomoConfigTest < Minitest::Test
       end
     end
   end
+
+  def test_handwritten_only_structure_routes_provider_groups_through_local_proxy
+    values = {
+      "proxy_providers" => [],
+      "local_proxies" => [handwritten_proxy],
+      "local_rules" => []
+    }
+
+    with_generated_config(values) do |config, _output_path|
+      assert_equal ["handwritten"], proxy_group(config, "local_proxy").fetch("proxies")
+
+      PROVIDER_GROUP_NAMES.each do |name|
+        group = proxy_group(config, name)
+        assert_equal ["local_proxy"], group.fetch("proxies"), name
+        refute group.key?("use"), name
+      end
+
+      auto_select = proxy_group(config, "auto_select")
+      assert_equal ["local_proxy"], auto_select.fetch("proxies")
+      refute auto_select.key?("use")
+      assert_equal ["local_proxy"], directly_referencing_groups(config, "handwritten")
+    end
+  end
+
+  def test_direct_only_structure_uses_local_proxy_fallback
+    values = {
+      "proxy_providers" => [],
+      "local_proxies" => [],
+      "local_rules" => []
+    }
+
+    with_generated_config(values) do |config, _output_path|
+      assert_equal ["DIRECT"], proxy_group(config, "local_proxy").fetch("proxies")
+
+      PROVIDER_GROUP_NAMES.each do |name|
+        group = proxy_group(config, name)
+        assert_equal ["local_proxy"], group.fetch("proxies"), name
+        refute group.key?("use"), name
+      end
+
+      auto_select = proxy_group(config, "auto_select")
+      assert_equal ["local_proxy"], auto_select.fetch("proxies")
+      refute auto_select.key?("use")
+    end
+  end
+
+  def test_handwritten_only_config_validates_with_mihomo
+    skip "mihomo executable is unavailable" unless mihomo_available?
+
+    values = {
+      "proxy_providers" => [],
+      "local_proxies" => [handwritten_proxy],
+      "local_rules" => []
+    }
+
+    with_generated_config(values) do |_config, output_path|
+      assert_mihomo_valid(output_path)
+    end
+  end
+
+  def test_direct_only_config_validates_with_mihomo
+    skip "mihomo executable is unavailable" unless mihomo_available?
+
+    values = {
+      "proxy_providers" => [],
+      "local_proxies" => [],
+      "local_rules" => []
+    }
+
+    with_generated_config(values) do |_config, output_path|
+      assert_mihomo_valid(output_path)
+    end
+  end
 end
