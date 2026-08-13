@@ -1,3 +1,7 @@
 /config.yaml
 /config.values.yaml
+/config-values.yaml
+/mix-config.yml
+/local-mini*.yml
+/rules/
 /.worktrees/

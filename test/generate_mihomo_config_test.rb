@@ -23,6 +23,25 @@ class GenerateMihomoConfigTest < Minitest::Test
     all_nodes
   ].freeze
   SNAPSHOT_GROUP_NAMES = (PROVIDER_GROUP_NAMES + %w[auto_select]).freeze
+  ROUTING_GROUP_NAMES = %w[
+    default
+    steam
+    apple
+    google
+    openai
+    telegram
+    twitter
+    ehentai
+    bilibili
+    bilibili_sea
+    bahamut
+    youtube
+    netflix
+    spotify
+    github
+    domestic
+    other
+  ].freeze
   MIHOMO_VALIDATION_TIMEOUT = 120
   MIHOMO_TERMINATION_TIMEOUT = 5
   MIHOMO_READER_TIMEOUT = 5
@@ -255,6 +274,70 @@ class GenerateMihomoConfigTest < Minitest::Test
       auto_select = proxy_group(config, "auto_select")
       assert_equal ["local_proxy"], auto_select.fetch("proxies")
       refute auto_select.key?("use")
+    end
+  end
+
+  def test_custom_groups_are_added_to_routing_groups_but_not_node_aggregation_groups
+    custom_group_names = %w[custom_primary custom_secondary]
+    custom_groups = custom_group_names.map do |name|
+      { "name" => name, "type" => "select", "proxies" => ["DIRECT"] }
+    end
+    values = provider_present_values.merge("local_proxy_groups" => custom_groups)
+
+    with_generated_config(values) do |config, _output_path|
+      ROUTING_GROUP_NAMES.each do |name|
+        assert_equal custom_group_names, proxy_group(config, name).fetch("proxies") & custom_group_names, name
+      end
+
+      PROVIDER_GROUP_NAMES.each do |name|
+        assert_empty proxy_group(config, name).fetch("proxies", []) & custom_group_names, name
+      end
+
+      custom_group_names.each do |name|
+        assert_equal ROUTING_GROUP_NAMES, directly_referencing_groups(config, name), name
+      end
+    end
+  end
+
+  def test_custom_rule_providers_render_provider_entries_and_rules
+    values = provider_present_values.merge(
+      "local_proxy_groups" => [
+        { "name" => "custom_policy", "type" => "select", "proxies" => ["DIRECT"] }
+      ],
+      "custom_rule_providers" => [
+        {
+          "name" => "local_ruleset",
+          "behavior" => "classical",
+          "format" => "text",
+          "path" => "./rules/local.list",
+          "policy" => "custom_policy"
+        },
+        {
+          "name" => "remote_ruleset",
+          "behavior" => "domain",
+          "format" => "yaml",
+          "url" => "https://example.com/rules.yaml",
+          "policy" => "google",
+          "rule_options" => ["no-resolve"]
+        }
+      ]
+    )
+
+    with_generated_config(values) do |config, _output_path|
+      providers = config.fetch("rule-providers")
+      assert_equal "file", providers.fetch("local_ruleset").fetch("type")
+      assert_equal "./rules/local.list", providers.fetch("local_ruleset").fetch("path")
+
+      remote_provider = providers.fetch("remote_ruleset")
+      assert_equal "http", remote_provider.fetch("type")
+      assert_equal 86_400, remote_provider.fetch("interval")
+      assert_equal "./rule_providers/remote_ruleset.yaml", remote_provider.fetch("path")
+
+      rules = config.fetch("rules")
+      assert_includes rules, "RULE-SET,local_ruleset,custom_policy"
+      assert_includes rules, "RULE-SET,remote_ruleset,google,no-resolve"
+      assert_operator rules.index("RULE-SET,local_ruleset,custom_policy"), :<,
+                      rules.index("RULE-SET,adblock_mihomo,ad_block")
     end
   end
 

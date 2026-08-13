@@ -36,8 +36,9 @@ local_proxies: []
 # 额外自定义策略组；没有就留空 []
 # 注意：
 # 1. 这里直接写 Mihomo 的 proxy-groups 项
-# 2. 需要完整写出字段，不能使用模板里的 YAML anchor（例如 <<: *pr）
-# 3. 下面只是示例，实际不用时保留 []
+# 2. 自定义组会自动加入 default 和所有业务策略组，不会加入地区/节点聚合组
+# 3. 需要完整写出字段，不能使用模板里的 YAML anchor（例如 <<: *pr）
+# 4. 下面只是示例，实际不用时保留 []
 local_proxy_groups: []
 #  - name: custom_group
 #    type: select
@@ -46,6 +47,25 @@ local_proxy_groups: []
 #      - hong_kong
 #      - japan
 #      - singapore
+
+# 自定义 rule-providers；支持本地文件和远程 URL
+# 生成后会自动追加对应的 RULE-SET 规则，位置在 SSH 直连之后、内置站点分流之前
+# 规则文件内容本身不要再写第三列策略名，例如：DOMAIN-SUFFIX,example.com
+# custom_rule_providers: []
+#  - name: mx_emby
+#    behavior: classical
+#    format: text
+#    path: ./rules/mx_emby.list
+#    policy: mx_emby
+#  - name: private_ai
+#    behavior: classical
+#    format: yaml
+#    url: https://example.com/private-ai.yaml
+#    path: ./rule_providers/private_ai.yaml
+#    interval: 86400
+#    policy: openai
+#    rule_options:
+#      - no-resolve
 
 # 额外自定义规则；没有就留空 []
 local_rules: []

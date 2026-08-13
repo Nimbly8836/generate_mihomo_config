@@ -283,6 +283,9 @@ pr: &pr
     - auto_select
     - private_vps
     - DIRECT
+<% local_proxy_group_names.each do |name| -%>
+    - <%= yaml_scalar(name) %>
+<% end -%>
 
 # 亚洲站点优先直连，不包含香港
 direct_asia_no_hk_pr: &direct_asia_no_hk_pr
@@ -293,6 +296,9 @@ direct_asia_no_hk_pr: &direct_asia_no_hk_pr
     - japan
     - singapore
     - other_regions
+<% local_proxy_group_names.each do |name| -%>
+    - <%= yaml_scalar(name) %>
+<% end -%>
 
 # 亚洲站点优先直连，包含香港
 direct_asia_pr: &direct_asia_pr
@@ -304,6 +310,9 @@ direct_asia_pr: &direct_asia_pr
     - japan
     - singapore
     - other_regions
+<% local_proxy_group_names.each do |name| -%>
+    - <%= yaml_scalar(name) %>
+<% end -%>
 
 # 订阅提供者的默认参数
 provider_defaults: &provider_defaults
@@ -367,6 +376,14 @@ rule-providers:
     url: "https://raw.githubusercontent.com/217heidai/adblockfilters/main/rules/adblockmihomo.yaml"
     path: "./rule_providers/adblock_mihomo.yaml"
     interval: 28800
+<% unless custom_rule_providers.empty? -%>
+
+  # values 文件中的自定义规则集
+<% custom_rule_providers.each do |provider| -%>
+  <%= provider.fetch("name") %>:
+<%= render_hash(custom_rule_provider_body(provider), indent: 4) -%>
+<% end -%>
+<% end -%>
 
 # ========================
 # 本地静态节点
@@ -394,6 +411,9 @@ proxy-groups:
       - all_nodes
       - auto_select
       - private_vps
+<% local_proxy_group_names.each do |name| -%>
+      - <%= yaml_scalar(name) %>
+<% end -%>
 
   # 本地静态节点入口，便于手动切换
   - name: local_proxy
@@ -433,6 +453,9 @@ proxy-groups:
       - singapore
       - united_states
       - other_regions
+<% local_proxy_group_names.each do |name| -%>
+      - <%= yaml_scalar(name) %>
+<% end -%>
 
   - name: telegram
     <<: *pr
@@ -477,6 +500,9 @@ proxy-groups:
       - other_regions
       - all_nodes
       - auto_select
+<% local_proxy_group_names.each do |name| -%>
+      - <%= yaml_scalar(name) %>
+<% end -%>
 
   - name: other
     <<: *pr
@@ -556,6 +582,13 @@ rules:
   - PROCESS-NAME,rsync,DIRECT
   - DST-PORT,22,DIRECT
 
+<% unless custom_rule_providers.empty? -%>
+  # values 文件中的自定义规则集引用
+<% custom_rule_providers.each do |provider| -%>
+  - <%= custom_rule_provider_rule(provider) %>
+<% end -%>
+
+<% end -%>
   # 广告过滤
   - RULE-SET,adblock_mihomo,ad_block
 

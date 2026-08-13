@@ -40,6 +40,22 @@ local_proxy_groups: []
   #     - hong_kong
   #     - japan
 
+custom_rule_providers: []
+  # - name: mx_emby
+  #   behavior: classical
+  #   format: text
+  #   path: ./rules/mx_emby.list
+  #   policy: mx_emby
+  # - name: private_ai
+  #   behavior: classical
+  #   format: yaml
+  #   url: "https://example.com/private-ai.yaml"
+  #   path: ./rule_providers/private_ai.yaml
+  #   interval: 86400
+  #   policy: openai
+  #   rule_options:
+  #     - no-resolve
+
 local_rules:
   - DOMAIN-SUFFIX,example.com,custom_group
 
@@ -59,6 +75,7 @@ fake_ip_filter:
 - `proxy_providers`: 可选的远程订阅列表；每个条目都需要 `name` 和 `url`
 - `local_proxies`: 本地静态节点列表，可在没有远程订阅时独立使用
 - `local_proxy_groups`: 额外自定义策略组，直接按 Mihomo `proxy-groups` 项的结构填写
+- `custom_rule_providers`: 额外自定义规则集；支持本地 `path` 文件和远程 `url`，并自动生成对应的 `RULE-SET`
 - `local_rules`: 额外自定义规则，按写入顺序插入到规则最前面
 - `fake_ip_filter`: 额外追加到 `dns.fake-ip-filter` 的域名列表；不会覆盖模板内置默认项
 - `dns_split_cn_foreign`: 是否按国内外分流 DNS；默认 `false`
@@ -73,7 +90,9 @@ fake_ip_filter:
 
 ## 当前规则约定
 
-- `local_proxy_groups` 会追加到 `proxy-groups:` 末尾，再进入 `rules:` 渲染
+- `local_proxy_groups` 会追加到 `proxy-groups:` 末尾，并自动成为 `default` 和所有业务策略组的可选项
+- 自定义策略组不会注入地区/节点聚合组，也不会注入 `local_proxy`、`ad_block`、`auto_select`
+- `custom_rule_providers` 会追加到 `rule-providers:`，并自动在 `rules:` 里生成 `RULE-SET,name,policy`
 - `local_rules` 放在 `rules:` 最上面，优先级最高
 - `fake_ip_filter` 会追加到 `dns.fake-ip-filter:` 末尾，并自动跳过与默认列表重复的项
 - 中国大陆流量优先走 `domestic`
@@ -102,6 +121,13 @@ local_proxy_groups:
 local_rules:
   - DOMAIN-SUFFIX,example.com,custom_group
 
+custom_rule_providers:
+  - name: mx_emby
+    behavior: classical
+    format: text
+    path: ./rules/mx_emby.list
+    policy: custom_group
+
 fake_ip_filter:
   - "+.example.com"
   - "stun.example.net"
@@ -110,6 +136,10 @@ fake_ip_filter:
 说明：
 
 - `local_proxy_groups` 里直接写完整策略组，不支持复用模板内部的 anchor，比如 `<<: *pr`
+- 自定义策略组会自动进入全局和业务策略组，无需逐个修改模板；地区及节点聚合组保持不变
+- `custom_rule_providers` 的 `policy` 写命中的策略组名；`url` 和 `path` 二选一即可，`url + path` 则表示远程规则和本地缓存路径同时指定
+- `custom_rule_providers` 的规则文件内容不要再写第三列策略名；例如 `classical + text` 文件里应写 `DOMAIN-SUFFIX,example.com`
+- `custom_rule_providers.rule_options` 会拼到 `RULE-SET` 末尾，适合 `no-resolve` 这类额外参数
 - `local_rules` 的第三列写你上面定义的分组名即可，比如 `custom_group`
 - `fake_ip_filter` 只做追加，不会删掉模板里的默认兼容域名
 

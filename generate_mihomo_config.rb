@@ -101,8 +101,13 @@ class TemplateContext
   PROVIDER_REQUIRED_KEYS = %w[name url].freeze
   LOCAL_PROXY_REQUIRED_KEYS = %w[name type server port].freeze
   LOCAL_PROXY_GROUP_REQUIRED_KEYS = %w[name type].freeze
+  CUSTOM_RULE_PROVIDER_REQUIRED_KEYS = %w[name behavior format policy].freeze
+  CUSTOM_RULE_PROVIDER_TYPES = %w[http file].freeze
+  CUSTOM_RULE_PROVIDER_BEHAVIORS = %w[domain ipcidr classical].freeze
+  CUSTOM_RULE_PROVIDER_FORMATS = %w[yaml text mrs].freeze
+  BUILTIN_RULE_PROVIDER_NAMES = %w[adblock_mihomo].freeze
 
-  attr_reader :proxy_providers, :local_proxies, :local_proxy_groups, :local_rules, :fake_ip_filter
+  attr_reader :proxy_providers, :local_proxies, :local_proxy_groups, :local_rules, :fake_ip_filter, :custom_rule_providers
 
   def initialize(values)
     @values = values.transform_keys(&:to_s)
@@ -111,6 +116,7 @@ class TemplateContext
     @local_proxy_groups = normalize_hash_array(@values["local_proxy_groups"], "local_proxy_groups")
     @local_rules = Array(@values["local_rules"]).map(&:to_s)
     @fake_ip_filter = normalize_string_array(optional_value("fake_ip_filter", "fake-ip-filter"), "fake_ip_filter")
+    @custom_rule_providers = normalize_hash_array(@values["custom_rule_providers"], "custom_rule_providers")
     validate!
   end
 
@@ -126,6 +132,10 @@ class TemplateContext
     @local_proxy_names ||= local_proxies.map { |proxy| proxy.fetch("name") }
   end
 
+  def local_proxy_group_names
+    @local_proxy_group_names ||= local_proxy_groups.map { |group| group.fetch("name") }
+  end
+
   def provider_uses_defaults?(provider)
     !provider["skip_defaults"]
   end
@@ -138,6 +148,23 @@ class TemplateContext
   def yaml_scalar(value)
     dumped = Psych.dump(value)
     dumped.sub(/\A---\s*\n?/, "").sub(/\n\.\.\.\s*\z/, "").strip
+  end
+
+  def custom_rule_provider_body(provider)
+    body = provider.reject { |key, _| %w[name policy rule_options].include?(key) }
+    body["type"] ||= custom_rule_provider_type(provider)
+
+    return body unless body["type"] == "http"
+
+    body["interval"] ||= 86_400
+    body["path"] ||= "./rule_providers/#{provider.fetch('name')}.#{rule_provider_extension(provider)}"
+    body
+  end
+
+  def custom_rule_provider_rule(provider)
+    rule = ["RULE-SET", provider.fetch("name"), provider.fetch("policy")]
+    rule.concat(Array(provider["rule_options"]).map(&:to_s))
+    rule.join(",")
   end
 
   def render_hash(hash, indent:)
@@ -231,6 +258,7 @@ class TemplateContext
     validate_hashes!(proxy_providers, PROVIDER_REQUIRED_KEYS, "proxy_providers")
     validate_hashes!(local_proxies, LOCAL_PROXY_REQUIRED_KEYS, "local_proxies")
     validate_hashes!(local_proxy_groups, LOCAL_PROXY_GROUP_REQUIRED_KEYS, "local_proxy_groups")
+    validate_custom_rule_providers!
   end
 
   def validate_hashes!(items, required_keys, label)
@@ -246,6 +274,95 @@ class TemplateContext
     warn "Invalid #{label} entries:"
     invalid_items.each { |entry| warn "  #{entry}" }
     exit 1
+  end
+
+  def validate_custom_rule_providers!
+    validate_hashes!(custom_rule_providers, CUSTOM_RULE_PROVIDER_REQUIRED_KEYS, "custom_rule_providers")
+    validate_unique_names!(
+      custom_rule_providers.map { |provider| provider["name"] },
+      "custom_rule_providers"
+    )
+
+    reserved_names = custom_rule_providers.map { |provider| provider["name"] } & BUILTIN_RULE_PROVIDER_NAMES
+    unless reserved_names.empty?
+      warn "custom_rule_providers contains reserved names: #{reserved_names.join(', ')}"
+      exit 1
+    end
+
+    custom_rule_providers.each do |provider|
+      name = provider.fetch("name")
+      type = custom_rule_provider_type(provider)
+
+      unless CUSTOM_RULE_PROVIDER_TYPES.include?(type)
+        warn "Invalid custom_rule_providers entry #{name}: type must be http or file, or inferred from url/path"
+        exit 1
+      end
+
+      unless CUSTOM_RULE_PROVIDER_BEHAVIORS.include?(provider["behavior"])
+        warn "Invalid custom_rule_providers entry #{name}: behavior must be one of #{CUSTOM_RULE_PROVIDER_BEHAVIORS.join(', ')}"
+        exit 1
+      end
+
+      unless CUSTOM_RULE_PROVIDER_FORMATS.include?(provider["format"])
+        warn "Invalid custom_rule_providers entry #{name}: format must be one of #{CUSTOM_RULE_PROVIDER_FORMATS.join(', ')}"
+        exit 1
+      end
+
+      if blank_value?(provider["policy"])
+        warn "Invalid custom_rule_providers entry #{name}: policy is required"
+        exit 1
+      end
+
+      case type
+      when "http"
+        if blank_value?(provider["url"])
+          warn "Invalid custom_rule_providers entry #{name}: http provider requires url"
+          exit 1
+        end
+      when "file"
+        if blank_value?(provider["path"])
+          warn "Invalid custom_rule_providers entry #{name}: file provider requires path"
+          exit 1
+        end
+
+        unless blank_value?(provider["url"])
+          warn "Invalid custom_rule_providers entry #{name}: file provider cannot set url"
+          exit 1
+        end
+      end
+
+      if provider["format"] == "mrs" && provider["behavior"] == "classical"
+        warn "Invalid custom_rule_providers entry #{name}: mrs format only supports domain or ipcidr behavior"
+        exit 1
+      end
+
+      next unless provider.key?("rule_options")
+
+      unless provider["rule_options"].is_a?(Array) && provider["rule_options"].all? { |item| item.is_a?(String) }
+        warn "Invalid custom_rule_providers entry #{name}: rule_options must be an array of strings"
+        exit 1
+      end
+    end
+  end
+
+  def validate_unique_names!(names, label)
+    duplicates = names.tally.select { |_, count| count > 1 }.keys
+    return if duplicates.empty?
+
+    warn "#{label} contains duplicate names: #{duplicates.join(', ')}"
+    exit 1
+  end
+
+  def custom_rule_provider_type(provider)
+    return provider["type"] if provider.key?("type")
+    return "http" unless blank_value?(provider["url"])
+    return "file" unless blank_value?(provider["path"])
+
+    nil
+  end
+
+  def rule_provider_extension(provider)
+    provider.fetch("format")
   end
 
   def append_mapping(lines, key, value, indent)
