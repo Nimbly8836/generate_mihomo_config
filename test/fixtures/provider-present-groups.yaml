@@ -1,46 +1,75 @@
 ---
-private_vps:
-  type: select
-  use: &1
-  - remote_provider
-  filter: "(?i)(_vps_).*"
 hong_kong:
   type: select
-  use: *1
-  filter: "(?i)(\U0001F1ED\U0001F1F0|香港|港(?![澳台])|(^|[^a-z])(hk|hkg|hong[ _-]?kong)([^a-z]|$))"
+  use: &remote_provider
+    - remote_provider
+  filter: "(?i)(🇭🇰|香港|港(?![澳台])|(^|[^a-z])\
+    (hk|hkg|hong[ _-]?kong)([^a-z]|$))"
   exclude-filter: "(?i)(澳門|澳门|macao|macau)"
+  proxies:
+    - hong_kong_auto
+    - my_proxy
 taiwan:
   type: select
-  use: *1
-  filter: "(?i)(\U0001F1F9\U0001F1FC|台湾|(^|[^a-z])(tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
+  use: *remote_provider
+  filter: "(?i)(🇹🇼|台湾|(^|[^a-z])\
+    (tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
   exclude-filter: "(?i)(hong[ _-]?kong|hk|hkg|macau|macao)"
+  proxies:
+    - taiwan_auto
+    - my_proxy
 japan:
   type: select
-  use: *1
-  filter: "(?i)(\U0001F1EF\U0001F1F5|日本|(^|[^a-z])(jp|jpn|japan|tokyo|osaka)([^a-z]|$))"
+  use: *remote_provider
+  filter: "(?i)(🇯🇵|日本|(^|[^a-z])\
+    (jp|jpn|japan|tokyo|osaka)([^a-z]|$))"
+  proxies:
+    - japan_auto
+    - my_proxy
 united_states:
   type: select
-  use: *1
-  filter: "(?i)(\U0001F1FA\U0001F1F8|美国|(^|[^a-z])(us|usa|united[ _-]?states|america)([^a-z]|$)|los[
-    _-]?angeles|san[ _-]?jose|silicon[ _-]?valley|new[ _-]?york|seattle|chicago)"
+  use: *remote_provider
+  filter: "(?i)(🇺🇸|美国|(^|[^a-z])\
+    (us|usa|united[ _-]?states|america)([^a-z]|$)|\
+    los[ _-]?angeles|san[ _-]?jose|silicon[ _-]?valley|\
+    new[ _-]?york|seattle|chicago)"
   exclude-filter: "(?i)(australia|au|aus)"
+  proxies:
+    - united_states_auto
+    - my_proxy
 singapore:
   type: select
-  use: *1
-  filter: "(?i)(\U0001F1F8\U0001F1EC|新加坡|狮城|(^|[^a-z])(sg|sgp|singapore)([^a-z]|$))"
+  use: *remote_provider
+  filter: "(?i)(🇸🇬|新加坡|狮城|(^|[^a-z])\
+    (sg|sgp|singapore)([^a-z]|$))"
+  proxies:
+    - singapore_auto
+    - my_proxy
 other_regions:
   type: select
-  use: *1
+  use: *remote_provider
   filter: ".+"
-  exclude-filter: "(?i)(\U0001F1ED\U0001F1F0|\U0001F1F9\U0001F1FC|\U0001F1EF\U0001F1F5|\U0001F1FA\U0001F1F8|\U0001F1F8\U0001F1EC|\U0001F1E8\U0001F1F3|香港|台湾|日本|美国|新加坡|(^|[^a-z])(hk|hkg|hong[
-    _-]?kong|tw|twn|tpe|taipei|taiwan|jp|jpn|japan|us|usa|united[ _-]?states|america|sg|sgp|singapore)([^a-z]|$))"
+  exclude-filter: "(?i)(🇭🇰|🇹🇼|🇯🇵|🇺🇸|🇸🇬|🇨🇳|\
+    香港|台湾|日本|美国|新加坡|(^|[^a-z])\
+    (hk|hkg|hong[ _-]?kong|tw|twn|tpe|taipei|taiwan|\
+    jp|jpn|japan|us|usa|united[ _-]?states|america|\
+    sg|sgp|singapore)([^a-z]|$))"
+  proxies:
+    - other_regions_auto
+    - my_proxy
 all_nodes:
   type: select
-  use: *1
+  use: *remote_provider
+  proxies:
+    - my_proxy
 auto_select:
   type: url-test
-  tolerance: 2
+  url: https://www.gstatic.com/generate_204
+  interval: 300
+  tolerance: 50
+  lazy: true
   proxies:
-  - DIRECT
+    - my_proxy
+    - DIRECT
   use:
-  - remote_provider
+    - remote_provider

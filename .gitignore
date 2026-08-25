@@ -1,7 +1,12 @@
 /config.yaml
 /config.values.yaml
 /config-values.yaml
+/config-lw.yaml
+/lw-vps.yaml
 /mix-config.yml
 /local-mini*.yml
 /rules/
+/.claude/
+/AGENTS.md
+/CLAUDE.md
 /.worktrees/

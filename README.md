@@ -32,6 +32,13 @@ local_proxies: []
 #     cipher: aes-128-gcm
 #     password: "change-me"
 
+# 地区自动测速/切换参数；所有字段都可覆盖
+url_test:
+  url: "https://www.gstatic.com/generate_204"
+  interval: 300
+  tolerance: 50
+  lazy: true
+
 local_proxy_groups: []
   # - name: custom_group
   #   type: select
@@ -74,6 +81,7 @@ fake_ip_filter:
 
 - `proxy_providers`: 可选的远程订阅列表；每个条目都需要 `name` 和 `url`
 - `local_proxies`: 本地静态节点列表，可在没有远程订阅时独立使用
+- `url_test`: 地区自动测速组和全局 `auto_select` 的参数；默认每 300 秒测速，地区手动组会优先包含对应的 `<region>_auto`
 - `local_proxy_groups`: 额外自定义策略组，直接按 Mihomo `proxy-groups` 项的结构填写
 - `custom_rule_providers`: 额外自定义规则集；支持本地 `path` 文件和远程 `url`，并自动生成对应的 `RULE-SET`
 - `local_rules`: 额外自定义规则，按写入顺序插入到规则最前面
@@ -82,14 +90,16 @@ fake_ip_filter:
 
 ### 节点来源模式
 
-1. **仅远程订阅**：所有基于 provider 的策略组，包括地区组、`private_vps`、`all_nodes` 和 `auto_select`，继续使用订阅节点。
-2. **仅手写节点**：手写节点只直接属于 `local_proxy`；其他节点策略组通过 `local_proxy` 使用这些节点。
-3. **两者均为空**：不使用代理节点，代理出口回退到 `DIRECT`；现有的 `REJECT`/广告拦截规则仍然生效，生成的配置无需订阅或节点也可正常启动。
+1. **仅远程订阅**：所有基于 provider 的策略组，包括地区组、`all_nodes` 和 `auto_select`，继续使用订阅节点。
+2. **仅手写节点**：手写节点只直接属于 `my_proxy`；其他节点策略组通过 `my_proxy` 使用这些节点。
+3. **远程订阅和手写节点并存**：`my_proxy` 会混入内置业务组、地区组、`all_nodes` 和 `auto_select`。
+4. **两者均为空**：`my_proxy` 回退到 `DIRECT`；现有的 `REJECT`/广告拦截规则仍然生效，生成的配置无需订阅或节点也可正常启动。
 
 模板已移除顶层的 `global-client-fingerprint`。上面的 Shadowsocks（`type: ss`）示例不需要 `client-fingerprint`。仅当 Mihomo 文档明确所选协议支持该字段时才使用：手写本地节点应将其放在对应的 `local_proxies` 节点上；订阅节点则必须由订阅/provider 内容提供，因为生成器不会改写 provider 节点。
 
 ## 当前规则约定
 
+- 香港、台湾、日本、美国、新加坡和其他地区各自包含一个 `<region>_auto` 自动测速组，可在保留手动选择的同时自动切换低延迟节点
 - `local_proxy_groups` 会追加到 `proxy-groups:` 末尾，并自动成为 `default` 和所有业务策略组的可选项
 - 自定义策略组不会注入地区/节点聚合组，也不会注入 `local_proxy`、`ad_block`、`auto_select`
 - `custom_rule_providers` 会追加到 `rule-providers:`，并自动在 `rules:` 里生成 `RULE-SET,name,policy`

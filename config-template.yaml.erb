@@ -273,6 +273,7 @@ pr: &pr
   type: select
   proxies:
     - default
+    - my_proxy
     - hong_kong
     - taiwan
     - japan
@@ -281,7 +282,6 @@ pr: &pr
     - other_regions
     - all_nodes
     - auto_select
-    - private_vps
     - DIRECT
 <% local_proxy_group_names.each do |name| -%>
     - <%= yaml_scalar(name) %>
@@ -292,6 +292,7 @@ direct_asia_no_hk_pr: &direct_asia_no_hk_pr
   type: select
   proxies:
     - DIRECT
+    - my_proxy
     - taiwan
     - japan
     - singapore
@@ -305,6 +306,7 @@ direct_asia_pr: &direct_asia_pr
   type: select
   proxies:
     - DIRECT
+    - my_proxy
     - hong_kong
     - taiwan
     - japan
@@ -330,14 +332,27 @@ provider_defaults: &provider_defaults
 
 # 使用订阅节点的策略组默认参数
 provider_use_defaults: &provider_use_defaults
-  # 手动选择节点组
+  # 手写节点组始终混入订阅策略组；没有手写节点时该组以 DIRECT 兜底
   type: select
-<% if provider_names.empty? -%>
-  # 没有远程订阅时统一使用本地静态节点组；该组自身会以 DIRECT 兜底
   proxies:
-    - local_proxy
-<% else -%>
+    - my_proxy
+<% unless provider_names.empty? -%>
   # 使用 values 文件中定义的所有远程订阅
+  use:
+<% provider_names.each do |name| -%>
+    - <%= name %>
+<% end -%>
+<% end -%>
+
+# 地区自动测速组的默认参数
+regional_url_test_defaults: &regional_url_test_defaults
+  type: url-test
+<%= render_hash(url_test, indent: 2) -%>
+<% if provider_names.empty? -%>
+  # 没有远程订阅时通过 my_proxy 回退到手写节点或 DIRECT
+  proxies:
+    - my_proxy
+<% else -%>
   use:
 <% provider_names.each do |name| -%>
     - <%= name %>
@@ -402,6 +417,7 @@ proxy-groups:
     type: select
     proxies:
       - DIRECT
+      - my_proxy
       - hong_kong
       - taiwan
       - japan
@@ -410,13 +426,12 @@ proxy-groups:
       - other_regions
       - all_nodes
       - auto_select
-      - private_vps
 <% local_proxy_group_names.each do |name| -%>
       - <%= yaml_scalar(name) %>
 <% end -%>
 
-  # 本地静态节点入口，便于手动切换
-  - name: local_proxy
+  # 手写静态节点入口，便于手动切换，并混入其他节点策略组
+  - name: my_proxy
     type: select
 <% if local_proxy_names.empty? -%>
     proxies:
@@ -448,6 +463,7 @@ proxy-groups:
   - name: openai
     type: select
     proxies:
+      - my_proxy
       - taiwan
       - japan
       - singapore
@@ -491,6 +507,7 @@ proxy-groups:
     type: select
     proxies:
       - DIRECT
+      - my_proxy
       - default
       - hong_kong
       - taiwan
@@ -508,35 +525,78 @@ proxy-groups:
     <<: *pr
 
   # 按地区聚合的节点组
-  - name: private_vps
-    <<: *provider_use_defaults
-    filter: "(?i)(_vps_).*"
-
   - name: hong_kong
     <<: *provider_use_defaults
+    proxies:
+      - hong_kong_auto
+      - my_proxy
     filter: "(?i)(🇭🇰|香港|港(?![澳台])|(^|[^a-z])(hk|hkg|hong[ _-]?kong)([^a-z]|$))"
     exclude-filter: "(?i)(澳門|澳门|macao|macau)"
 
   - name: taiwan
     <<: *provider_use_defaults
+    proxies:
+      - taiwan_auto
+      - my_proxy
     filter: "(?i)(🇹🇼|台湾|(^|[^a-z])(tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
     exclude-filter: "(?i)(hong[ _-]?kong|hk|hkg|macau|macao)"
 
   - name: japan
     <<: *provider_use_defaults
+    proxies:
+      - japan_auto
+      - my_proxy
     filter: "(?i)(🇯🇵|日本|(^|[^a-z])(jp|jpn|japan|tokyo|osaka)([^a-z]|$))"
 
   - name: united_states
     <<: *provider_use_defaults
+    proxies:
+      - united_states_auto
+      - my_proxy
     filter: "(?i)(🇺🇸|美国|(^|[^a-z])(us|usa|united[ _-]?states|america)([^a-z]|$)|los[ _-]?angeles|san[ _-]?jose|silicon[ _-]?valley|new[ _-]?york|seattle|chicago)"
     exclude-filter: "(?i)(australia|au|aus)"
 
   - name: singapore
     <<: *provider_use_defaults
+    proxies:
+      - singapore_auto
+      - my_proxy
     filter: "(?i)(🇸🇬|新加坡|狮城|(^|[^a-z])(sg|sgp|singapore)([^a-z]|$))"
 
   - name: other_regions
     <<: *provider_use_defaults
+    proxies:
+      - other_regions_auto
+      - my_proxy
+    filter: ".+"
+    exclude-filter: "(?i)(🇭🇰|🇹🇼|🇯🇵|🇺🇸|🇸🇬|🇨🇳|香港|台湾|日本|美国|新加坡|(^|[^a-z])(hk|hkg|hong[ _-]?kong|tw|twn|tpe|taipei|taiwan|jp|jpn|japan|us|usa|united[ _-]?states|america|sg|sgp|singapore)([^a-z]|$))"
+
+  # 各地区自动测速组
+  - name: hong_kong_auto
+    <<: *regional_url_test_defaults
+    filter: "(?i)(🇭🇰|香港|港(?![澳台])|(^|[^a-z])(hk|hkg|hong[ _-]?kong)([^a-z]|$))"
+    exclude-filter: "(?i)(澳門|澳门|macao|macau)"
+
+  - name: taiwan_auto
+    <<: *regional_url_test_defaults
+    filter: "(?i)(🇹🇼|台湾|(^|[^a-z])(tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
+    exclude-filter: "(?i)(hong[ _-]?kong|hk|hkg|macau|macao)"
+
+  - name: japan_auto
+    <<: *regional_url_test_defaults
+    filter: "(?i)(🇯🇵|日本|(^|[^a-z])(jp|jpn|japan|tokyo|osaka)([^a-z]|$))"
+
+  - name: united_states_auto
+    <<: *regional_url_test_defaults
+    filter: "(?i)(🇺🇸|美国|(^|[^a-z])(us|usa|united[ _-]?states|america)([^a-z]|$)|los[ _-]?angeles|san[ _-]?jose|silicon[ _-]?valley|new[ _-]?york|seattle|chicago)"
+    exclude-filter: "(?i)(australia|au|aus)"
+
+  - name: singapore_auto
+    <<: *regional_url_test_defaults
+    filter: "(?i)(🇸🇬|新加坡|狮城|(^|[^a-z])(sg|sgp|singapore)([^a-z]|$))"
+
+  - name: other_regions_auto
+    <<: *regional_url_test_defaults
     filter: ".+"
     exclude-filter: "(?i)(🇭🇰|🇹🇼|🇯🇵|🇺🇸|🇸🇬|🇨🇳|香港|台湾|日本|美国|新加坡|(^|[^a-z])(hk|hkg|hong[ _-]?kong|tw|twn|tpe|taipei|taiwan|jp|jpn|japan|us|usa|united[ _-]?states|america|sg|sgp|singapore)([^a-z]|$))"
 
@@ -546,19 +606,16 @@ proxy-groups:
   # 自动测速选择节点
   - name: auto_select
     type: url-test
-    tolerance: 2
-<% if provider_names.empty? -%>
+<%= render_hash(url_test, indent: 4) -%>
     proxies:
-      - local_proxy
-<% else -%>
-    proxies:
+      - my_proxy
+<% unless provider_names.empty? -%>
       - DIRECT
     use:
 <% provider_names.each do |name| -%>
       - <%= name %>
 <% end -%>
 <% end -%>
-
 <% unless local_proxy_groups.empty? -%>
 
   # values 文件中的自定义策略组

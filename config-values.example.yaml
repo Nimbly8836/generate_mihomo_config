@@ -8,7 +8,6 @@
 # dns_split_cn_foreign: false
 # web_secret: "change-me"
 
-
 # 远程订阅列表（可选）；name 不能重复
 proxy_providers: []
 # 如需使用远程订阅，请将上面的 [] 替换为：
@@ -32,6 +31,15 @@ local_proxies: []
 # 订阅节点必须由订阅/provider 内容提供，因为生成器不会改写 provider 节点。
 # proxy_providers 和 local_proxies 都为空时，不使用代理节点，代理出口回退到 DIRECT；
 # 现有 REJECT/广告拦截规则仍然生效，配置无需订阅或节点也可正常启动。
+
+# 地区自动测速/切换参数。
+# 会为香港、台湾、日本、美国、新加坡和其他地区分别生成 <地区>_auto 组，
+# 并同时应用于全局 auto_select。下面都是默认值，可按需覆盖或整段省略。
+url_test:
+  url: https://www.gstatic.com/generate_204
+  interval: 300
+  tolerance: 50
+  lazy: true
 
 # 额外自定义策略组；没有就留空 []
 # 注意：
