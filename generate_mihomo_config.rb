@@ -149,6 +149,14 @@ class TemplateContext
     @local_proxy_group_names ||= local_proxy_groups.map { |group| group.fetch('name') }
   end
 
+  def local_proxy_group_names_for(*built_in_group_names)
+    blocked_names = built_in_group_names.map(&:to_s)
+
+    local_proxy_groups.filter_map do |group|
+      group.fetch('name') unless local_proxy_group_references_any?(group, blocked_names)
+    end
+  end
+
   def provider_uses_defaults?(provider)
     !provider['skip_defaults']
   end
@@ -215,6 +223,19 @@ class TemplateContext
   end
 
   private
+
+  def local_proxy_group_references_any?(group, target_names, visited_names = [])
+    referenced_names = Array(group['proxies']).map(&:to_s)
+    return true unless (referenced_names & target_names).empty?
+
+    nested_group_names = referenced_names & local_proxy_group_names
+    nested_group_names.any? do |name|
+      next false if visited_names.include?(name)
+
+      nested_group = local_proxy_groups.find { |candidate| candidate.fetch('name') == name }
+      local_proxy_group_references_any?(nested_group, target_names, visited_names + [name])
+    end
+  end
 
   def optional_value(*keys)
     found_keys = keys.select { |key| @values.key?(key) }

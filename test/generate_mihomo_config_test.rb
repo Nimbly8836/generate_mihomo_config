@@ -326,6 +326,24 @@ class GenerateMihomoConfigTest < Minitest::Test
     end
   end
 
+  def test_custom_group_is_not_injected_into_a_group_it_references
+    values = empty_provider_values([]).merge(
+      'local_proxy_groups' => [
+        {
+          'name' => 'mx_emby',
+          'type' => 'select',
+          'proxies' => ['default']
+        }
+      ]
+    )
+
+    with_generated_config(values) do |config, output_path|
+      refute_includes proxy_group(config, 'default').fetch('proxies'), 'mx_emby'
+      assert_includes proxy_group(config, 'mx_emby').fetch('proxies'), 'default'
+      assert_mihomo_valid(output_path) if mihomo_available?
+    end
+  end
+
   def test_custom_groups_are_added_to_routing_groups_but_not_node_aggregation_groups
     custom_group_names = %w[custom_primary custom_secondary]
     custom_groups = custom_group_names.map do |name|

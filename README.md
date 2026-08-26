@@ -97,10 +97,22 @@ fake_ip_filter:
 
 模板已移除顶层的 `global-client-fingerprint`。上面的 Shadowsocks（`type: ss`）示例不需要 `client-fingerprint`。仅当 Mihomo 文档明确所选协议支持该字段时才使用：手写本地节点应将其放在对应的 `local_proxies` 节点上；订阅节点则必须由订阅/provider 内容提供，因为生成器不会改写 provider 节点。
 
+## 当前内置代理组
+
+生成器目前会创建以下内置代理组，名称可直接用于 `local_proxy_groups[].proxies`、`custom_rule_providers[].policy` 和 `local_rules`：
+
+- 核心出口：`default`、`my_proxy`、`all_nodes`、`auto_select`
+- 地区手动组：`hong_kong`、`taiwan`、`japan`、`united_states`、`singapore`、`other_regions`
+- 地区自动测速组：`hong_kong_auto`、`taiwan_auto`、`japan_auto`、`united_states_auto`、`singapore_auto`、`other_regions_auto`
+- 业务策略组：`steam`、`apple`、`google`、`openai`、`telegram`、`twitter`、`ehentai`、`bilibili`、`bilibili_sea`、`bahamut`、`youtube`、`netflix`、`spotify`、`github`、`domestic`、`other`
+- 拦截组：`ad_block`
+- Mihomo 内置动作：`DIRECT`、`REJECT`
+
 ## 当前规则约定
 
 - 香港、台湾、日本、美国、新加坡和其他地区各自包含一个 `<region>_auto` 自动测速组，可在保留手动选择的同时自动切换低延迟节点
 - `local_proxy_groups` 会追加到 `proxy-groups:` 末尾，并自动成为 `default` 和所有业务策略组的可选项
+- 如果自定义组直接或间接引用某个内置业务组，生成器不会再把该自定义组反向注入被引用组，从而避免 `default → custom → default` 这类循环
 - 自定义策略组不会注入地区/节点聚合组，也不会注入 `local_proxy`、`ad_block`、`auto_select`
 - `custom_rule_providers` 会追加到 `rule-providers:`，并自动在 `rules:` 里生成 `RULE-SET,name,policy`
 - `local_rules` 放在 `rules:` 最上面，优先级最高

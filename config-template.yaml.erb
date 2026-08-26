@@ -283,7 +283,7 @@ pr: &pr
     - all_nodes
     - auto_select
     - DIRECT
-<% local_proxy_group_names.each do |name| -%>
+<% local_proxy_group_names_for("steam", "google", "telegram", "twitter", "ehentai", "bilibili_sea", "bahamut", "youtube", "netflix", "spotify", "github", "other").each do |name| -%>
     - <%= yaml_scalar(name) %>
 <% end -%>
 
@@ -297,7 +297,7 @@ direct_asia_no_hk_pr: &direct_asia_no_hk_pr
     - japan
     - singapore
     - other_regions
-<% local_proxy_group_names.each do |name| -%>
+<% local_proxy_group_names_for("apple").each do |name| -%>
     - <%= yaml_scalar(name) %>
 <% end -%>
 
@@ -312,7 +312,7 @@ direct_asia_pr: &direct_asia_pr
     - japan
     - singapore
     - other_regions
-<% local_proxy_group_names.each do |name| -%>
+<% local_proxy_group_names_for("bilibili").each do |name| -%>
     - <%= yaml_scalar(name) %>
 <% end -%>
 
@@ -426,7 +426,7 @@ proxy-groups:
       - other_regions
       - all_nodes
       - auto_select
-<% local_proxy_group_names.each do |name| -%>
+<% local_proxy_group_names_for("default").each do |name| -%>
       - <%= yaml_scalar(name) %>
 <% end -%>
 
@@ -469,7 +469,7 @@ proxy-groups:
       - singapore
       - united_states
       - other_regions
-<% local_proxy_group_names.each do |name| -%>
+<% local_proxy_group_names_for("openai").each do |name| -%>
       - <%= yaml_scalar(name) %>
 <% end -%>
 
@@ -517,7 +517,7 @@ proxy-groups:
       - other_regions
       - all_nodes
       - auto_select
-<% local_proxy_group_names.each do |name| -%>
+<% local_proxy_group_names_for("domestic").each do |name| -%>
       - <%= yaml_scalar(name) %>
 <% end -%>
 

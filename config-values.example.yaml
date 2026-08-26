@@ -48,16 +48,41 @@ url_test:
   tolerance: 50
   lazy: true
 
+# 当前所有内置代理组（可用于 proxies、policy 和 local_rules）：
+# 核心出口：default、my_proxy、all_nodes、auto_select
+# 地区手动组：hong_kong、taiwan、japan、united_states、singapore、other_regions
+# 地区自动组：hong_kong_auto、taiwan_auto、japan_auto、united_states_auto、
+#              singapore_auto、other_regions_auto
+# 业务策略组：steam、apple、google、openai、telegram、twitter、ehentai、
+#              bilibili、bilibili_sea、bahamut、youtube、netflix、spotify、
+#              github、domestic、other
+# 拦截组：ad_block
+# Mihomo 内置动作：DIRECT、REJECT
+
 # 额外自定义策略组。
 # 自定义组会自动加入 default 和所有业务策略组，但不会加入地区/节点聚合组。
+# 如果自定义组引用了某个内置业务组，生成器会跳过反向注入，避免策略组循环。
 # 这里需要写完整的 Mihomo proxy-groups 项，不能使用模板内部的 YAML anchor。
 local_proxy_groups:
   - name: custom_group
     type: select
     proxies:
-      - auto_select
+      - default
+      - my_proxy
+      - hong_kong
       - hong_kong_auto
+      - taiwan
+      - taiwan_auto
+      - japan
       - japan_auto
+      - united_states
+      - united_states_auto
+      - singapore
+      - singapore_auto
+      - other_regions
+      - other_regions_auto
+      - all_nodes
+      - auto_select
       - local_ss
       - DIRECT
   - name: streaming
