@@ -1,125 +1,164 @@
 # 完整配置示例。
 # 复制后请替换订阅地址、服务器地址、密码和 Web 密钥等占位值。
 
-# Mihomo 混合代理端口
+# Mihomo 混合代理端口；HTTP 和 SOCKS5 共用。
 port: 7890
 
-# 外部控制面板端口
+# 外部控制面板/API 端口。
 web_port: 9090
 
-# TUN 设备名称
+# TUN 设备名称。
 tun_device: utun-mihomo
 
-# 是否按国内外域名启用 DNS 分流
+# 是否按国内外域名启用 DNS 分流。
 dns_split_cn_foreign: false
 
-# Web 面板/API 鉴权密钥；实际使用时务必修改
+# Web 面板/API 鉴权密钥；实际使用时务必修改。
 web_secret: "change-me-before-use"
 
-# 远程订阅列表；name 不能重复
+# 远程订阅列表；可以配置多个，name 不能重复。
 proxy_providers:
+  # 主订阅。
   - name: primary_provider
+    # 订阅地址。
     url: "https://example.com/primary-subscription.yaml"
+  # 备用订阅。
   - name: backup_provider
+    # 订阅地址。
     url: "https://example.com/backup-subscription.yaml"
+    # 订阅内容的本地缓存路径；省略时由生成器自动设置。
     path: ./proxy_providers/backup_provider.yaml
+    # 订阅刷新间隔，单位为秒。
     interval: 7200
 
-# 本地静态代理节点；可与远程订阅同时使用
+# 本地静态代理节点；可与远程订阅同时使用。
 local_proxies:
+  # 节点名称，可在 my_proxy 或自定义组中引用。
   - name: local_ss
+    # Mihomo 节点协议类型。
     type: ss
+    # 节点服务器地址。
     server: "127.0.0.1"
+    # 节点服务器端口。
     port: 8388
+    # Shadowsocks 加密方式。
     cipher: aes-128-gcm
+    # 节点密码；实际使用时务必修改。
     password: "change-me"
 
-# 上面的 Shadowsocks（type: ss）示例不需要 client-fingerprint。
-# 仅当 Mihomo 文档明确所选协议支持该字段时才使用：手写节点放在对应的 local_proxies 节点上；
-# 订阅节点必须由订阅/provider 内容提供，因为生成器不会改写 provider 节点。
-# proxy_providers 和 local_proxies 都为空时，代理出口会回退到 DIRECT。
+# 上面的 Shadowsocks 示例不需要 client-fingerprint。
+# 仅当 Mihomo 文档明确所选协议支持该字段时才使用。
+# 手写节点放在 local_proxies 中；订阅节点由 provider 内容提供。
+# proxy_providers 和 local_proxies 都为空时，代理出口回退到 DIRECT。
 
-# 地区自动测速/切换参数。
-# 会为香港、台湾、日本、美国、新加坡和其他地区分别生成 <地区>_auto 组，
-# 并同时应用于全局 auto_select。
+# 地区和全局自动测速组使用的 url-test 参数。
 url_test:
+  # 延迟测试地址，建议返回 HTTP 204。
   url: https://www.gstatic.com/generate_204
+  # 重新测速的间隔，单位为秒。
   interval: 300
+  # 延迟差低于该毫秒数时不切换节点。
   tolerance: 50
+  # true 表示只有组被使用时才执行测速。
   lazy: true
 
-# 当前所有内置代理组（可用于 proxies、policy 和 local_rules）：
+# 当前所有内置代理组都可以用于 proxies、policy 和 local_rules。
 # 核心出口：default、my_proxy、all_nodes、auto_select
-# 地区手动组：hong_kong、taiwan、japan、united_states、singapore、other_regions
-# 地区自动组：hong_kong_auto、taiwan_auto、japan_auto、united_states_auto、
-#              singapore_auto、other_regions_auto
-# 业务策略组：steam、apple、google、openai、telegram、twitter、ehentai、
-#              bilibili、bilibili_sea、bahamut、youtube、netflix、spotify、
-#              github、domestic、other
+# 地区手动组：hk、jp、tw、us、sg、others
+# 地区自动组：hk_auto、jp_auto、tw_auto、us_auto、sg_auto、others_auto
+# 业务策略组：steam、apple、google、openai、telegram、twitter、
+#              ehentai、bilibili、bilibili_sea、bahamut、youtube、
+#              netflix、spotify、github、domestic、other
 # 拦截组：ad_block
 # Mihomo 内置动作：DIRECT、REJECT
 
-# 额外自定义策略组。
-# 自定义组会自动加入 default 和所有业务策略组，但不会加入地区/节点聚合组。
-# 如果自定义组引用了某个内置业务组，生成器会跳过反向注入，避免策略组循环。
-# 这里需要写完整的 Mihomo proxy-groups 项，不能使用模板内部的 YAML anchor。
+# 额外手写策略组；生成后排在业务组之前、地区组之前。
+# 自定义组通常会加入 default 和业务组，但不会加入地区聚合组。
+# 如果自定义组引用了某个内置业务组，生成器会跳过反向注入，
+# 从而避免 default -> custom -> default 这类循环。
 local_proxy_groups:
+  # 综合手动选择组示例。
   - name: custom_group
+    # select 表示由用户手动选择出口。
     type: select
+    # 可选出口；这里列出所有节点选择类的内置组。
     proxies:
       - default
       - my_proxy
-      - hong_kong
-      - hong_kong_auto
-      - taiwan
-      - taiwan_auto
-      - japan
-      - japan_auto
-      - united_states
-      - united_states_auto
-      - singapore
-      - singapore_auto
-      - other_regions
-      - other_regions_auto
+      - hk
+      - hk_auto
+      - jp
+      - jp_auto
+      - tw
+      - tw_auto
+      - us
+      - us_auto
+      - sg
+      - sg_auto
+      - others
+      - others_auto
       - all_nodes
       - auto_select
       - local_ss
       - DIRECT
+  # 自定义组可以继续引用另一个自定义组。
   - name: streaming
+    # 仍然使用手动选择模式。
     type: select
+    # 流媒体常用出口示例。
     proxies:
       - custom_group
-      - singapore_auto
-      - united_states_auto
+      - sg_auto
+      - us_auto
       - DIRECT
 
-# 自定义 rule-providers；支持本地文件和远程 URL。
+# 自定义 rule-providers；支持远程 URL 和本地文件。
 # 每项都会自动生成 RULE-SET,name,policy 规则。
 custom_rule_providers:
+  # 远程文本规则集示例。
   - name: example_remote_rules
+    # http 表示从远程下载规则。
     type: http
+    # classical 支持完整的 DOMAIN-SUFFIX、IP-CIDR 等规则。
     behavior: classical
+    # 远程文件格式。
     format: text
+    # 远程规则地址。
     url: https://example.com/rules/example.list
+    # 下载后的本地缓存路径。
     path: ./rule_providers/example_remote_rules.list
+    # 规则刷新间隔，单位为秒。
     interval: 86400
+    # 命中规则后使用的策略组。
     policy: custom_group
+    # 追加到生成的 RULE-SET 规则末尾。
     rule_options:
       - no-resolve
+  # 本地 YAML 规则集示例。
   - name: example_local_rules
+    # file 表示直接读取本地文件。
     type: file
+    # domain 表示规则内容为域名集合。
     behavior: domain
+    # 本地文件格式。
     format: yaml
+    # 本地规则文件路径。
     path: ./rules/example-local.yaml
+    # 命中规则后使用的策略组。
     policy: streaming
 
-# 额外自定义规则；按顺序插入最终 rules 的最前面
+# 额外自定义规则；按顺序插入最终 rules 的最前面。
 local_rules:
+  # 指定域名后缀走自定义组。
   - DOMAIN-SUFFIX,example.com,custom_group
+  # 指定流媒体域名走 streaming。
   - DOMAIN-SUFFIX,stream.example,streaming
+  # 示例网段始终直连，并且不额外解析域名。
   - IP-CIDR,192.0.2.0/24,DIRECT,no-resolve
 
-# 额外追加到 dns.fake-ip-filter；不会覆盖模板内置项
+# 额外追加到 dns.fake-ip-filter；不会覆盖模板内置项。
 fake_ip_filter:
+  # example.com 及其所有子域名不使用 fake-ip。
   - "+.example.com"
+  # 单个 STUN 域名不使用 fake-ip。
   - "stun.example.net"

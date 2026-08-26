@@ -274,12 +274,12 @@ pr: &pr
   proxies:
     - default
     - my_proxy
-    - hong_kong
-    - taiwan
-    - japan
-    - singapore
-    - united_states
-    - other_regions
+    - hk
+    - jp
+    - tw
+    - us
+    - sg
+    - others
     - all_nodes
     - auto_select
     - DIRECT
@@ -293,10 +293,10 @@ direct_asia_no_hk_pr: &direct_asia_no_hk_pr
   proxies:
     - DIRECT
     - my_proxy
-    - taiwan
-    - japan
-    - singapore
-    - other_regions
+    - jp
+    - tw
+    - sg
+    - others
 <% local_proxy_group_names_for("apple").each do |name| -%>
     - <%= yaml_scalar(name) %>
 <% end -%>
@@ -307,11 +307,11 @@ direct_asia_pr: &direct_asia_pr
   proxies:
     - DIRECT
     - my_proxy
-    - hong_kong
-    - taiwan
-    - japan
-    - singapore
-    - other_regions
+    - hk
+    - jp
+    - tw
+    - sg
+    - others
 <% local_proxy_group_names_for("bilibili").each do |name| -%>
     - <%= yaml_scalar(name) %>
 <% end -%>
@@ -418,12 +418,12 @@ proxy-groups:
     proxies:
       - DIRECT
       - my_proxy
-      - hong_kong
-      - taiwan
-      - japan
-      - singapore
-      - united_states
-      - other_regions
+      - hk
+      - jp
+      - tw
+      - us
+      - sg
+      - others
       - all_nodes
       - auto_select
 <% local_proxy_group_names_for("default").each do |name| -%>
@@ -449,6 +449,11 @@ proxy-groups:
     proxies:
       - REJECT
       - DIRECT
+<% unless local_proxy_groups.empty? -%>
+
+  # values 文件中的手写自定义策略组，优先放在业务组和地区组之前
+<%= render_list(local_proxy_groups, indent: 2) -%>
+<% end -%>
 
   # 业务策略组
   - name: steam
@@ -464,11 +469,11 @@ proxy-groups:
     type: select
     proxies:
       - my_proxy
-      - taiwan
-      - japan
-      - singapore
-      - united_states
-      - other_regions
+      - jp
+      - tw
+      - us
+      - sg
+      - others
 <% local_proxy_group_names_for("openai").each do |name| -%>
       - <%= yaml_scalar(name) %>
 <% end -%>
@@ -509,12 +514,12 @@ proxy-groups:
       - DIRECT
       - my_proxy
       - default
-      - hong_kong
-      - taiwan
-      - japan
-      - singapore
-      - united_states
-      - other_regions
+      - hk
+      - jp
+      - tw
+      - us
+      - sg
+      - others
       - all_nodes
       - auto_select
 <% local_proxy_group_names_for("domestic").each do |name| -%>
@@ -524,86 +529,11 @@ proxy-groups:
   - name: other
     <<: *pr
 
-  # 按地区聚合的节点组
-  - name: hong_kong
-    <<: *provider_use_defaults
-    proxies:
-      - hong_kong_auto
-      - my_proxy
-    filter: "(?i)(🇭🇰|香港|港(?![澳台])|(^|[^a-z])(hk|hkg|hong[ _-]?kong)([^a-z]|$))"
-    exclude-filter: "(?i)(澳門|澳门|macao|macau)"
-
-  - name: taiwan
-    <<: *provider_use_defaults
-    proxies:
-      - taiwan_auto
-      - my_proxy
-    filter: "(?i)(🇹🇼|台湾|(^|[^a-z])(tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
-    exclude-filter: "(?i)(hong[ _-]?kong|hk|hkg|macau|macao)"
-
-  - name: japan
-    <<: *provider_use_defaults
-    proxies:
-      - japan_auto
-      - my_proxy
-    filter: "(?i)(🇯🇵|日本|(^|[^a-z])(jp|jpn|japan|tokyo|osaka)([^a-z]|$))"
-
-  - name: united_states
-    <<: *provider_use_defaults
-    proxies:
-      - united_states_auto
-      - my_proxy
-    filter: "(?i)(🇺🇸|美国|(^|[^a-z])(us|usa|united[ _-]?states|america)([^a-z]|$)|los[ _-]?angeles|san[ _-]?jose|silicon[ _-]?valley|new[ _-]?york|seattle|chicago)"
-    exclude-filter: "(?i)(australia|au|aus)"
-
-  - name: singapore
-    <<: *provider_use_defaults
-    proxies:
-      - singapore_auto
-      - my_proxy
-    filter: "(?i)(🇸🇬|新加坡|狮城|(^|[^a-z])(sg|sgp|singapore)([^a-z]|$))"
-
-  - name: other_regions
-    <<: *provider_use_defaults
-    proxies:
-      - other_regions_auto
-      - my_proxy
-    filter: ".+"
-    exclude-filter: "(?i)(🇭🇰|🇹🇼|🇯🇵|🇺🇸|🇸🇬|🇨🇳|香港|台湾|日本|美国|新加坡|(^|[^a-z])(hk|hkg|hong[ _-]?kong|tw|twn|tpe|taipei|taiwan|jp|jpn|japan|us|usa|united[ _-]?states|america|sg|sgp|singapore)([^a-z]|$))"
-
-  # 各地区自动测速组
-  - name: hong_kong_auto
-    <<: *regional_url_test_defaults
-    filter: "(?i)(🇭🇰|香港|港(?![澳台])|(^|[^a-z])(hk|hkg|hong[ _-]?kong)([^a-z]|$))"
-    exclude-filter: "(?i)(澳門|澳门|macao|macau)"
-
-  - name: taiwan_auto
-    <<: *regional_url_test_defaults
-    filter: "(?i)(🇹🇼|台湾|(^|[^a-z])(tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
-    exclude-filter: "(?i)(hong[ _-]?kong|hk|hkg|macau|macao)"
-
-  - name: japan_auto
-    <<: *regional_url_test_defaults
-    filter: "(?i)(🇯🇵|日本|(^|[^a-z])(jp|jpn|japan|tokyo|osaka)([^a-z]|$))"
-
-  - name: united_states_auto
-    <<: *regional_url_test_defaults
-    filter: "(?i)(🇺🇸|美国|(^|[^a-z])(us|usa|united[ _-]?states|america)([^a-z]|$)|los[ _-]?angeles|san[ _-]?jose|silicon[ _-]?valley|new[ _-]?york|seattle|chicago)"
-    exclude-filter: "(?i)(australia|au|aus)"
-
-  - name: singapore_auto
-    <<: *regional_url_test_defaults
-    filter: "(?i)(🇸🇬|新加坡|狮城|(^|[^a-z])(sg|sgp|singapore)([^a-z]|$))"
-
-  - name: other_regions_auto
-    <<: *regional_url_test_defaults
-    filter: ".+"
-    exclude-filter: "(?i)(🇭🇰|🇹🇼|🇯🇵|🇺🇸|🇸🇬|🇨🇳|香港|台湾|日本|美国|新加坡|(^|[^a-z])(hk|hkg|hong[ _-]?kong|tw|twn|tpe|taipei|taiwan|jp|jpn|japan|us|usa|united[ _-]?states|america|sg|sgp|singapore)([^a-z]|$))"
-
+  # 所有订阅节点
   - name: all_nodes
     <<: *provider_use_defaults
 
-  # 自动测速选择节点
+  # 全局自动测速选择节点
   - name: auto_select
     type: url-test
 <%= render_hash(url_test, indent: 4) -%>
@@ -616,11 +546,81 @@ proxy-groups:
       - <%= name %>
 <% end -%>
 <% end -%>
-<% unless local_proxy_groups.empty? -%>
 
-  # values 文件中的自定义策略组
-<%= render_list(local_proxy_groups, indent: 2) -%>
-<% end -%>
+  # 地区手动/自动组统一放在 proxy-groups 最后
+  - name: hk
+    <<: *provider_use_defaults
+    proxies:
+      - hk_auto
+      - my_proxy
+    filter: "(?i)(🇭🇰|香港|港(?![澳台])|(^|[^a-z])(hk|hkg|hong[ _-]?kong)([^a-z]|$))"
+    exclude-filter: "(?i)(澳門|澳门|macao|macau)"
+
+  - name: hk_auto
+    <<: *regional_url_test_defaults
+    filter: "(?i)(🇭🇰|香港|港(?![澳台])|(^|[^a-z])(hk|hkg|hong[ _-]?kong)([^a-z]|$))"
+    exclude-filter: "(?i)(澳門|澳门|macao|macau)"
+
+  - name: jp
+    <<: *provider_use_defaults
+    proxies:
+      - jp_auto
+      - my_proxy
+    filter: "(?i)(🇯🇵|日本|(^|[^a-z])(jp|jpn|japan|tokyo|osaka)([^a-z]|$))"
+
+  - name: jp_auto
+    <<: *regional_url_test_defaults
+    filter: "(?i)(🇯🇵|日本|(^|[^a-z])(jp|jpn|japan|tokyo|osaka)([^a-z]|$))"
+
+  - name: tw
+    <<: *provider_use_defaults
+    proxies:
+      - tw_auto
+      - my_proxy
+    filter: "(?i)(🇹🇼|台湾|(^|[^a-z])(tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
+    exclude-filter: "(?i)(hong[ _-]?kong|hk|hkg|macau|macao)"
+
+  - name: tw_auto
+    <<: *regional_url_test_defaults
+    filter: "(?i)(🇹🇼|台湾|(^|[^a-z])(tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
+    exclude-filter: "(?i)(hong[ _-]?kong|hk|hkg|macau|macao)"
+
+  - name: us
+    <<: *provider_use_defaults
+    proxies:
+      - us_auto
+      - my_proxy
+    filter: "(?i)(🇺🇸|美国|(^|[^a-z])(us|usa|united[ _-]?states|america)([^a-z]|$)|los[ _-]?angeles|san[ _-]?jose|silicon[ _-]?valley|new[ _-]?york|seattle|chicago)"
+    exclude-filter: "(?i)(australia|au|aus)"
+
+  - name: us_auto
+    <<: *regional_url_test_defaults
+    filter: "(?i)(🇺🇸|美国|(^|[^a-z])(us|usa|united[ _-]?states|america)([^a-z]|$)|los[ _-]?angeles|san[ _-]?jose|silicon[ _-]?valley|new[ _-]?york|seattle|chicago)"
+    exclude-filter: "(?i)(australia|au|aus)"
+
+  - name: sg
+    <<: *provider_use_defaults
+    proxies:
+      - sg_auto
+      - my_proxy
+    filter: "(?i)(🇸🇬|新加坡|狮城|(^|[^a-z])(sg|sgp|singapore)([^a-z]|$))"
+
+  - name: sg_auto
+    <<: *regional_url_test_defaults
+    filter: "(?i)(🇸🇬|新加坡|狮城|(^|[^a-z])(sg|sgp|singapore)([^a-z]|$))"
+
+  - name: others
+    <<: *provider_use_defaults
+    proxies:
+      - others_auto
+      - my_proxy
+    filter: ".+"
+    exclude-filter: "(?i)(🇭🇰|🇹🇼|🇯🇵|🇺🇸|🇸🇬|🇨🇳|香港|台湾|日本|美国|新加坡|(^|[^a-z])(hk|hkg|hong[ _-]?kong|tw|twn|tpe|taipei|taiwan|jp|jpn|japan|us|usa|united[ _-]?states|america|sg|sgp|singapore)([^a-z]|$))"
+
+  - name: others_auto
+    <<: *regional_url_test_defaults
+    filter: ".+"
+    exclude-filter: "(?i)(🇭🇰|🇹🇼|🇯🇵|🇺🇸|🇸🇬|🇨🇳|香港|台湾|日本|美国|新加坡|(^|[^a-z])(hk|hkg|hong[ _-]?kong|tw|twn|tpe|taipei|taiwan|jp|jpn|japan|us|usa|united[ _-]?states|america|sg|sgp|singapore)([^a-z]|$))"
 
 # ========================
 # 规则

@@ -13,12 +13,12 @@ class GenerateMihomoConfigTest < Minitest::Test
   GENERATOR = File.join(ROOT, 'generate_mihomo_config.rb')
   TEMPLATE = File.join(ROOT, 'config-template.yaml.erb')
   REGION_GROUP_NAMES = %w[
-    hong_kong
-    taiwan
-    japan
-    united_states
-    singapore
-    other_regions
+    hk
+    jp
+    tw
+    us
+    sg
+    others
   ].freeze
   PROVIDER_GROUP_NAMES = (REGION_GROUP_NAMES + %w[all_nodes]).freeze
   SNAPSHOT_GROUP_NAMES = (PROVIDER_GROUP_NAMES + %w[auto_select]).freeze
@@ -323,6 +323,29 @@ class GenerateMihomoConfigTest < Minitest::Test
       end
 
       assert_equal url_test, proxy_group(config, 'auto_select').slice(*url_test.keys)
+    end
+  end
+
+  def test_local_groups_are_prioritized_and_region_groups_are_last
+    values = provider_present_values.merge(
+      'local_proxy_groups' => [
+        { 'name' => 'custom_primary', 'type' => 'select', 'proxies' => ['DIRECT'] }
+      ]
+    )
+    expected_region_tail = %w[
+      hk hk_auto
+      jp jp_auto
+      tw tw_auto
+      us us_auto
+      sg sg_auto
+      others others_auto
+    ]
+
+    with_generated_config(values) do |config, _output_path|
+      group_names = config.fetch('proxy-groups').map { |group| group.fetch('name') }
+
+      assert_operator group_names.index('custom_primary'), :<, group_names.index('steam')
+      assert_equal expected_region_tail, group_names.last(expected_region_tail.length)
     end
   end
 

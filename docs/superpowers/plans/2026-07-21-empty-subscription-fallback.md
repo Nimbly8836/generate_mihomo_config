@@ -94,12 +94,12 @@ class GenerateMihomoConfigTest < Minitest::Test
   TEMPLATE = File.join(ROOT, "config-template.yaml.erb")
   PROVIDER_GROUP_NAMES = %w[
     private_vps
-    hong_kong
-    taiwan
-    japan
-    united_states
-    singapore
-    other_regions
+    hk
+    tw
+    jp
+    us
+    sg
+    others
     all_nodes
   ].freeze
   SNAPSHOT_GROUP_NAMES = (PROVIDER_GROUP_NAMES + %w[auto_select]).freeze
@@ -225,7 +225,7 @@ Run:
 ```bash
 ruby -ryaml -e '
   data = YAML.safe_load_file("test/fixtures/provider-present-groups.yaml", aliases: true)
-  abort "wrong groups" unless data.keys.sort == %w[all_nodes auto_select hong_kong japan other_regions private_vps singapore taiwan united_states].sort
+  abort "wrong groups" unless data.keys.sort == %w[all_nodes auto_select hk jp others private_vps sg tw us].sort
   abort "secret leaked" if File.read(ARGV[0]).match?(/test-password|web_secret/)
   puts "snapshot groups=#{data.keys.length}; no secret data"
 ' test/fixtures/provider-present-groups.yaml
