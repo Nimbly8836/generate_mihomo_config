@@ -1,85 +1,100 @@
-# 最小可用示例。
-# 下列字段都可以省略，生成器会自动补默认值：
-# 如果你想覆盖默认值，可以显式写出来：
-# port: 7890
-# web_port: 9090
-# tun_device: utun-mihomo
-# 是否按国内外分流 DNS；默认 false，不启用 fallback
-# dns_split_cn_foreign: false
-# web_secret: "change-me"
+# 完整配置示例。
+# 复制后请替换订阅地址、服务器地址、密码和 Web 密钥等占位值。
 
-# 远程订阅列表（可选）；name 不能重复
-proxy_providers: []
-# 如需使用远程订阅，请将上面的 [] 替换为：
-# proxy_providers:
-#   - name: default_provider
-#     url: "https://example.com/subscription.yaml"
+# Mihomo 混合代理端口
+port: 7890
 
-# 本地静态代理节点（可独立使用）；没有就留空 []
-local_proxies: []
-# 如需使用手写节点，请将上面的 [] 替换为：
-# local_proxies:
-#   - name: local_ss
-#     type: ss
-#     server: "127.0.0.1"
-#     port: 8388
-#     cipher: aes-128-gcm
-#     password: "change-me"
+# 外部控制面板端口
+web_port: 9090
+
+# TUN 设备名称
+tun_device: utun-mihomo
+
+# 是否按国内外域名启用 DNS 分流
+dns_split_cn_foreign: false
+
+# Web 面板/API 鉴权密钥；实际使用时务必修改
+web_secret: "change-me-before-use"
+
+# 远程订阅列表；name 不能重复
+proxy_providers:
+  - name: primary_provider
+    url: "https://example.com/primary-subscription.yaml"
+  - name: backup_provider
+    url: "https://example.com/backup-subscription.yaml"
+    path: ./proxy_providers/backup_provider.yaml
+    interval: 7200
+
+# 本地静态代理节点；可与远程订阅同时使用
+local_proxies:
+  - name: local_ss
+    type: ss
+    server: "127.0.0.1"
+    port: 8388
+    cipher: aes-128-gcm
+    password: "change-me"
 
 # 上面的 Shadowsocks（type: ss）示例不需要 client-fingerprint。
 # 仅当 Mihomo 文档明确所选协议支持该字段时才使用：手写节点放在对应的 local_proxies 节点上；
 # 订阅节点必须由订阅/provider 内容提供，因为生成器不会改写 provider 节点。
-# proxy_providers 和 local_proxies 都为空时，不使用代理节点，代理出口回退到 DIRECT；
-# 现有 REJECT/广告拦截规则仍然生效，配置无需订阅或节点也可正常启动。
+# proxy_providers 和 local_proxies 都为空时，代理出口会回退到 DIRECT。
 
 # 地区自动测速/切换参数。
 # 会为香港、台湾、日本、美国、新加坡和其他地区分别生成 <地区>_auto 组，
-# 并同时应用于全局 auto_select。下面都是默认值，可按需覆盖或整段省略。
+# 并同时应用于全局 auto_select。
 url_test:
   url: https://www.gstatic.com/generate_204
   interval: 300
   tolerance: 50
   lazy: true
 
-# 额外自定义策略组；没有就留空 []
-# 注意：
-# 1. 这里直接写 Mihomo 的 proxy-groups 项
-# 2. 自定义组会自动加入 default 和所有业务策略组，不会加入地区/节点聚合组
-# 3. 需要完整写出字段，不能使用模板里的 YAML anchor（例如 <<: *pr）
-# 4. 下面只是示例，实际不用时保留 []
-local_proxy_groups: []
-#  - name: custom_group
-#    type: select
-#    proxies:
-#      - DIRECT
-#      - hong_kong
-#      - japan
-#      - singapore
+# 额外自定义策略组。
+# 自定义组会自动加入 default 和所有业务策略组，但不会加入地区/节点聚合组。
+# 这里需要写完整的 Mihomo proxy-groups 项，不能使用模板内部的 YAML anchor。
+local_proxy_groups:
+  - name: custom_group
+    type: select
+    proxies:
+      - auto_select
+      - hong_kong_auto
+      - japan_auto
+      - local_ss
+      - DIRECT
+  - name: streaming
+    type: select
+    proxies:
+      - custom_group
+      - singapore_auto
+      - united_states_auto
+      - DIRECT
 
-# 自定义 rule-providers；支持本地文件和远程 URL
-# 生成后会自动追加对应的 RULE-SET 规则，位置在 SSH 直连之后、内置站点分流之前
-# 规则文件内容本身不要再写第三列策略名，例如：DOMAIN-SUFFIX,example.com
-# custom_rule_providers: []
-#  - name: mx_emby
-#    behavior: classical
-#    format: text
-#    path: ./rules/mx_emby.list
-#    policy: mx_emby
-#  - name: private_ai
-#    behavior: classical
-#    format: yaml
-#    url: https://example.com/private-ai.yaml
-#    path: ./rule_providers/private_ai.yaml
-#    interval: 86400
-#    policy: openai
-#    rule_options:
-#      - no-resolve
+# 自定义 rule-providers；支持本地文件和远程 URL。
+# 每项都会自动生成 RULE-SET,name,policy 规则。
+custom_rule_providers:
+  - name: example_remote_rules
+    type: http
+    behavior: classical
+    format: text
+    url: https://example.com/rules/example.list
+    path: ./rule_providers/example_remote_rules.list
+    interval: 86400
+    policy: custom_group
+    rule_options:
+      - no-resolve
+  - name: example_local_rules
+    type: file
+    behavior: domain
+    format: yaml
+    path: ./rules/example-local.yaml
+    policy: streaming
 
-# 额外自定义规则；没有就留空 []
-local_rules: []
-#  - DOMAIN-SUFFIX,example.com,custom_group
+# 额外自定义规则；按顺序插入最终 rules 的最前面
+local_rules:
+  - DOMAIN-SUFFIX,example.com,custom_group
+  - DOMAIN-SUFFIX,stream.example,streaming
+  - IP-CIDR,192.0.2.0/24,DIRECT,no-resolve
 
-# 额外追加到 dns.fake-ip-filter 的域名；没有就留空 []
-fake_ip_filter: []
-#  - "+.example.com"
-#  - "stun.example.net"
+# 额外追加到 dns.fake-ip-filter；不会覆盖模板内置项
+fake_ip_filter:
+  - "+.example.com"
+  - "stun.example.net"
