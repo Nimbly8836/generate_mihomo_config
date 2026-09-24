@@ -30,12 +30,43 @@ ruby web_server.rb
 HOST=127.0.0.1 PORT=4567 ruby web_server.rb
 ```
 
-前端文件位于 `web/index.html`，支持浏览器本地保存当前编辑内容、生成配置和下载结果。
+前端文件位于 `web/index.html`，支持浏览器本地保存 YAML 编辑内容、生成配置和下载结果。
+表单模式与 YAML 模式相互独立，不自动转换；表单字段（包括 WG 密钥）不保存到 localStorage。
 
 表单的“基础设置”中提供 **启用 IP4P（实验功能）** 开关，默认不勾选。
 勾选后生成 `experimental.dialer-ip4p-convert: true`，不自动开启 IPv6 或修改 WG 节点；
 需要运行配置的 Mihomo 核心支持这个字段。开关只影响表单模式，YAML 模式仍以编辑内容为准。
-WG 参数目前仍在 YAML 模式通过 `wireguard` 配置。
+
+### 在表单中添加 WG 节点
+
+点击 **添加 WG 节点**，填写名称、服务器、端口、客户端隧道地址、客户端私钥、服务端公钥和 `allowed-ips` 网段。
+支持添加/移除多个节点，以及预共享密钥、MTU、保活秒数、服务器 IPv4/IPv6 解析偏好。
+客户端地址不带 CIDR 前缀，IPv4 / IPv6 至少填一个；网段和域名列表每行一项。
+
+分流方式可以选择：
+
+- 按 `allowed-ips` 自动生成网段规则；
+- 只为指定的较窄网段生成规则；
+- 仅分流域名（生成 `routes: []`，必须填写域名）。
+
+名称为 `office` 时生成 `wg_office_node` 和 `wg_office`，不混入普通出口，失败不自动回落直连。
+不会自动建立隧道、配置内网 DNS 或启用 IPv6；高级参数仍可使用 YAML 模式。
+
+### 手写规则和外部规则集
+
+- **直接代理到 proxy / 直接连接到 DIRECT**：每行只写 `类型,匹配值`，如 `DOMAIN-SUFFIX,example.com`。不要写 URL、目标策略或 `no-resolve`；完整/逻辑规则请使用 YAML 的 `local_rules`。
+- **插入其他内置组**：每行写 `组名: 类型,匹配值`。下方列出当前分组模式的全部内置组；切换 simple/detailed 后同步更新，也会提示本表单的 WG 组。
+  simple 模式使用 `chat`、`ai` 等父组；`telegram`、`openai` 等详细组只能在 detailed 模式使用。填写不存在的组会报错，不会静默忽略。
+- **外部规则集**：点击添加，填写唯一名称、规则文件直链、`behavior`、`format` 和目标组。要让整个外部列表走普通代理，将目标组填为 `proxy`；无需另外手写 `RULE-SET`。
+  支持多个来源和可选 `no-resolve`；目标组输入框提供当前内置组、WG 组及 `DIRECT` / `REJECT` 建议。
+
+外部规则源必须是 Clash/Mihomo 规则文件，不是订阅节点或 GitHub 网页地址。
+`domain` 为域名列表，`ipcidr` 为网段列表，`classical` 为带规则类型但不带策略的列表；
+`yaml` 文件需带 `payload`，`text` 为逐行文本，`mrs` 为二进制文件且不能配合 `classical`。
+例如填写 `custom_media`、`https://example.com/media.mrs`、`domain`、`mrs`、`media`。
+URL 只是占位示例，请替换为可信来源；Web 只生成配置，不下载或验证来源内容。
+默认由 Mihomo 使用配置时通过 `DIRECT` 下载，每 24 小时更新。
+手写规则和 WG 规则优先于外部规则集；不同来源冲突时先匹配排在前面的规则。
 
 ### Docker / Docker Compose
 
@@ -287,7 +318,7 @@ cp config-values-wireguard.example.yaml config-values-wg.yaml
 ruby generate_mihomo_config.rb --values config-values-wg.yaml --output config-wg.yaml
 ```
 
-CLI、Web 的完整 YAML 编辑模式和 REST API 的 `values` 输入都使用此入口；表单模式暂未提供 WG 专用控件。
+CLI、Web 的 WG 表单 / 完整 YAML 编辑模式和 REST API 的 `values` 输入都使用此入口。
 生成器只生成配置，不负责建立隧道、修改系统路由或验证服务端转发能力。
 字段参考：[Mihomo WireGuard 文档](https://wiki.metacubex.one/config/proxies/wg/)。
 

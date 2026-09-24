@@ -10,50 +10,287 @@
     .titlebar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
     .theme-toggle { margin: 0; padding: 8px 10px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: 20px; line-height: 1; }
     section { margin: 18px 0; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+    #form-editor { border: 0; margin: 0; padding: 0; min-width: 0; }
+    .entry-card { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin: 12px 0; min-width: 0; }
     label { display: block; margin: 10px 0; } input, textarea, select { box-sizing: border-box; width: 100%; margin-top: 5px; padding: 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--field); color: var(--text); }
     .checkbox { display: flex; align-items: center; gap: 8px; } .checkbox input { width: auto; margin: 0; }
     textarea { min-height: 100px; font: 14px/1.5 ui-monospace, monospace; } #file-values { min-height: 600px; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
     button { margin: 12px 8px 12px 0; padding: 10px 18px; border: 0; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; }
-    button.active { background: #059669; } button:disabled { opacity: .6; cursor: wait; } .hint { color: var(--muted); } pre { white-space: pre-wrap; padding: 12px; border-radius: 6px; background: var(--panel); }
+    button.active { background: #059669; } button:disabled { opacity: .6; cursor: wait; }
+    .hint { color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; } code { overflow-wrap: anywhere; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border-radius: 6px; background: var(--panel); }
+    summary { cursor: pointer; } [data-remove] { background: #9f3030; }
+    a { color: #60a5fa; } :root.light a { color: #1d4ed8; }
   </style>
 </head>
 <body>
   <div class="titlebar"><h1>Mihomo 配置生成器</h1><button type="button" id="theme-toggle" class="theme-toggle" aria-label="切换主题" title="切换到白天模式">☀️</button></div>
-  <p class="hint">可以直接填写参数，也可以直接编辑完整的 values.yaml。生成后可下载 config.yaml。</p>
+  <p class="hint">项目仓库：<a href="https://github.com/Nimbly8836/generate_mihomo_config" target="_blank" rel="noopener noreferrer">github.com/Nimbly8836/generate_mihomo_config</a>。更多说明请参考仓库。</p>
+  <p class="hint">直接填写参数，或编辑完整 values.yaml，生成后下载 config.yaml。两种输入模式独立，不会互相转换。</p>
   <div><button type="button" id="form-mode" class="active">直接填写参数</button><button type="button" id="file-mode">编辑配置文件</button></div>
   <form id="form">
-    <div id="form-editor">
+    <fieldset id="form-editor">
       <section><h2>基础设置</h2><div class="grid">
-        <label>端口<input name="port" type="number" value="7890"></label><label>Web 端口<input name="web_port" type="number" value="9090"></label>
-        <label>分组模式<select name="group_mode"><option value="simple">simple</option><option value="detailed">detailed</option></select></label><label>Web 密钥<input name="web_secret" placeholder="留空自动生成"></label>
+        <label>端口<input name="port" type="number" value="7890" min="1" max="65535" required></label>
+        <label>Web 端口<input name="web_port" type="number" value="9090" min="1" max="65535" required></label>
+        <label>分组模式<select name="group_mode"><option value="simple">simple</option><option value="detailed">detailed</option></select></label>
+        <label>Web 密钥<input name="web_secret" placeholder="留空自动生成"></label>
       </div>
         <label class="checkbox"><input name="ip4p" type="checkbox" aria-describedby="ip4p-hint">启用 IP4P（实验功能）</label>
         <p id="ip4p-hint" class="hint">仅影响表单模式。需要支持 dialer-ip4p-convert 的 Mihomo 核心；不会自动开启 IPv6 或修改 WG 节点。YAML 模式请使用 config_overrides 配置。</p>
       </section>
-      <section><h2>订阅</h2><p class="hint">每行格式：名称 | URL | 前缀；前缀可省略。</p><textarea name="providers" placeholder="main | https://example.com/sub.yaml | Main"></textarea></section>
-      <section><h2>自定义规则</h2>
-        <label>直接代理到 proxy<textarea name="proxy_rules" placeholder="DOMAIN-SUFFIX,example.com"></textarea></label>
-        <label>直接连接到 DIRECT<textarea name="direct_rules" placeholder="DOMAIN-SUFFIX,lan.example.com"></textarea></label>
-        <label>插入其他内置组<textarea name="group_rules" placeholder="chat: DOMAIN-SUFFIX,t.me&#10;media: GEOSITE,youtube&#10;ai: DOMAIN-SUFFIX,example.ai"></textarea></label>
+      <section><h2>订阅</h2><p class="hint">代理节点订阅，不是分流规则集。每行：名称 | URL | 前缀；前缀可省略。</p><textarea name="providers" placeholder="main | https://example.com/sub.yaml | Main"></textarea></section>
+      <section>
+        <h2>WireGuard 内网节点</h2>
+        <p class="hint">点击添加后填写节点参数。每条配置自动生成 wg_名称 分组和内网规则，不加入普通代理出口；手写规则仍优先。移除卡片可取消该节点。密钥不会写入浏览器本地存储，但会包含在下载的配置中。</p>
+        <div id="wg-entries"></div>
+        <button type="button" id="add-wg">添加 WG 节点</button>
       </section>
-    </div>
+      <section><h2>自定义规则</h2>
+        <p class="hint">下方填写手写匹配条件，每行一条，例如 DOMAIN-SUFFIX,example.com 或 IP-CIDR,192.168.10.0/24。只写“类型,匹配值”，不要附加目标组、no-resolve 等选项。完整或逻辑规则请在 YAML 模式使用 local_rules。</p>
+        <label>直接代理到 proxy<textarea name="proxy_rules" aria-describedby="external-rule-hint" placeholder="DOMAIN-SUFFIX,example.com&#10;DOMAIN,api.example.com"></textarea></label>
+        <p id="external-rule-hint" class="hint">这里不能直接粘贴外部规则 URL。若要把一个外部列表全部交给 proxy，请在下面“外部规则集”中填写 URL，并将目标组设为 proxy。</p>
+        <label>直接连接到 DIRECT<textarea name="direct_rules" placeholder="DOMAIN-SUFFIX,lan.example.com"></textarea></label>
+        <label>插入其他内置组<textarea name="group_rules" aria-describedby="group-help" placeholder="chat: DOMAIN-SUFFIX,t.me&#10;media: GEOSITE,youtube&#10;ai: DOMAIN-SUFFIX,example.ai"></textarea></label>
+        <p class="hint">每行：组名: 类型,匹配值。simple 模式使用 chat、ai 等父组；telegram、openai 等详细组只在 detailed 模式可用。</p>
+        <p id="group-help" class="hint" aria-live="polite"></p>
+        <details><summary>隐藏自动测速组与特殊目标</summary><p id="auto-group-help" class="hint"></p><p class="hint">DIRECT、REJECT 是内置动作，也可以作为规则目标。一般优先选择可见的手动分组。</p></details>
+      </section>
+      <section>
+        <h2>外部规则集</h2>
+        <p class="hint">适用于 Clash/Mihomo 规则集的直链（如 GitHub raw 地址），不是节点订阅或网页链接。为每个来源填写名称、URL、内容类型、文件格式和目标组，自动生成 rule-providers 及 RULE-SET 规则。默认通过 DIRECT 下载、每 24 小时更新；由 Mihomo 使用配置时下载，本页面不会访问该 URL。</p>
+        <ul class="hint">
+          <li>domain：纯域名列表；ipcidr：IP 网段列表；classical：带规则类型的列表，例如 DOMAIN-SUFFIX,example.com（不要带目标组）。</li>
+          <li>yaml：带 payload 的规则文件；text：逐行文本；mrs：二进制规则集，仅支持 domain / ipcidr。</li>
+          <li>例如：custom_media | https://example.com/media.mrs | domain | mrs | media。若希望全部走普通代理，将目标组改为 proxy。</li>
+          <li>匹配优先级：手写规则 → WG 内网规则 → 默认 SSH 直连 → 外部规则集 → 默认服务规则。</li>
+        </ul>
+        <div id="rule-entries"></div>
+        <button type="button" id="add-rule-provider">添加外部规则集</button>
+        <datalist id="policy-targets"></datalist>
+      </section>
+    </fieldset>
     <div id="file-editor" hidden><section><h2>values.yaml</h2><textarea id="file-values" spellcheck="false"></textarea></section></div>
     <button id="generate" type="submit">生成配置</button><button id="download" type="button" disabled>下载 config.yaml</button>
   </form>
-  <pre id="status">就绪</pre>
+  <pre id="status" role="status" aria-live="polite">就绪</pre>
+
+  <template id="wg-template">
+    <fieldset class="entry-card" data-entry>
+      <legend>WG 内网节点</legend>
+      <div class="grid">
+        <label>名称<input name="wg_name" placeholder="office" pattern="[a-z][a-z0-9_\-]*" required></label>
+        <label>服务器<input name="wg_server" placeholder="wg.example.com" required></label>
+        <label>端口<input name="wg_port" type="number" min="1" max="65535" value="51820" required></label>
+        <label>客户端隧道 IPv4<input name="wg_ip" placeholder="10.7.0.2（不带 /24）"></label>
+        <label>客户端隧道 IPv6（可选）<input name="wg_ipv6" placeholder="fd00:7::2"></label>
+        <label>服务器地址解析偏好<select name="wg_ip_version"><option value="">核心默认</option><option value="ipv6-prefer">IPv6 优先（ipv6-prefer）</option><option value="ipv4-prefer">IPv4 优先（ipv4-prefer）</option><option value="ipv4">仅 IPv4</option><option value="ipv6">仅 IPv6</option></select></label>
+        <label>客户端私钥<input name="wg_private_key" type="password" autocomplete="off" spellcheck="false" required></label>
+        <label>服务端公钥<input name="wg_public_key" autocomplete="off" spellcheck="false" required></label>
+        <label>预共享密钥（可选）<input name="wg_preshared_key" type="password" autocomplete="off" spellcheck="false"></label>
+        <label>MTU（可选）<input name="wg_mtu" type="number" min="1" placeholder="1420"></label>
+        <label>保活秒数（可选）<input name="wg_keepalive" type="number" min="0" placeholder="25"></label>
+      </div>
+      <p class="hint">IPv4 / IPv6 至少填一项。密钥为 Base64 编码的 32 字节值。这里只填写单个 peer；多 peer 或其他高级参数请使用 YAML 模式。</p>
+      <label>允许的目标网段 allowed-ips（每行一个 CIDR）<textarea name="wg_allowed_ips" placeholder="10.7.0.0/24&#10;192.168.50.0/24" required></textarea></label>
+      <label>自动分流方式<select name="wg_routes_mode"><option value="auto">按照 allowed-ips 自动生成网段规则</option><option value="custom">只分流下面指定的网段</option><option value="domains">只分流域名，不生成网段规则</option></select></label>
+      <label>指定分流网段（仅第二种方式使用，每行一个 CIDR）<textarea name="wg_routes" placeholder="192.168.50.0/24"></textarea></label>
+      <label>内网域名（可选，每行一个裸域名，匹配自身及子域名）<textarea name="wg_domains" placeholder="office.internal"></textarea></label>
+      <p class="hint">内网模式禁止生成 /0 全网分流。若 allowed-ips 使用 0.0.0.0/0 或 ::/0，请选择指定较窄网段或仅域名分流。内网域名需要可用的 DNS；不会自动配置 DNS 或建立 WG 连接。</p>
+      <button type="button" data-remove>移除此 WG 节点</button>
+    </fieldset>
+  </template>
+  <template id="rule-template">
+    <fieldset class="entry-card" data-entry>
+      <legend>外部规则集</legend>
+      <div class="grid">
+        <label>唯一名称<input name="rule_name" placeholder="custom_media" pattern="[A-Za-z0-9][A-Za-z0-9_\-]*" required></label>
+        <label>规则直链 URL<input name="rule_url" type="url" placeholder="https://example.com/media.mrs" required></label>
+        <label>内容类型 behavior<select name="rule_behavior"><option value="domain">domain（域名）</option><option value="ipcidr">ipcidr（网段）</option><option value="classical">classical（规则）</option></select></label>
+        <label>文件格式 format<select name="rule_format"><option value="mrs">mrs</option><option value="yaml">yaml</option><option value="text">text</option></select></label>
+        <label>目标组或动作<input name="rule_policy" list="policy-targets" value="proxy" required></label>
+        <label>IP 规则解析选项<select name="rule_no_resolve"><option value="">默认</option><option value="no-resolve">不主动解析域名（no-resolve）</option></select></label>
+      </div>
+      <p class="hint">名称不能与已有内置规则源重复。目标组可从建议列表中选择，也可使用本表单生成的 wg_名称。更复杂的缓存路径、下载代理等设置请使用 YAML 模式的 custom_rule_providers。</p>
+      <button type="button" data-remove>移除此规则集</button>
+    </fieldset>
+  </template>
+
   <script>
     const form = document.querySelector('#form'), formEditor = document.querySelector('#form-editor'), fileEditor = document.querySelector('#file-editor'), fileValues = document.querySelector('#file-values'), status = document.querySelector('#status');
-    const formMode = document.querySelector('#form-mode'), fileMode = document.querySelector('#file-mode'), themeToggle = document.querySelector('#theme-toggle'), generate = document.querySelector('#generate'), download = document.querySelector('#download'); let config = '', mode = localStorage.getItem('mihomo-mode') || 'form';
+    const formMode = document.querySelector('#form-mode'), fileMode = document.querySelector('#file-mode'), themeToggle = document.querySelector('#theme-toggle'), generate = document.querySelector('#generate'), download = document.querySelector('#download');
+    let config = '', mode = localStorage.getItem('mihomo-mode') || 'form';
+    const regions = ['hk', 'jp', 'tw', 'sg', 'us', 'kr', 'eu', 'others'];
+    const baseGroups = ['default', 'proxy', 'my_proxy', 'ad_block', 'ai', 'game', 'media', 'chat', 'dev', 'cloud', 'download', 'adult', 'china', 'other', 'final', 'domestic', 'all_nodes', ...regions];
+    const detailedGroups = ['openai', 'claude', 'gemini', 'copilot', 'steam', 'epic', 'blizzard', 'ps', 'xbox', 'nintendo', 'youtube', 'netflix', 'disney', 'prime', 'hbo', 'twitch', 'spotify', 'telegram', 'discord', 'whatsapp', 'x', 'github', 'gitlab', 'docker', 'google', 'apple', 'microsoft', 'onedrive'];
+    const autoGroups = regions.map(region => `${region}_auto`);
+    const lines = text => String(text || '').split('\n').map(x => x.trim()).filter(Boolean);
+    const textAt = (data, key, index) => String(data.getAll(key)[index] || '').trim();
+    const validName = name => /^[a-z][a-z0-9_-]*$/.test(name);
+
     function setTheme(theme) { const light = theme === 'light'; document.documentElement.classList.toggle('light', light); localStorage.setItem('mihomo-theme', theme); themeToggle.textContent = light ? '🌙' : '☀️'; themeToggle.title = light ? '切换到黑夜模式' : '切换到白天模式'; themeToggle.setAttribute('aria-label', themeToggle.title); }
     themeToggle.onclick = () => setTheme(document.documentElement.classList.contains('light') ? 'dark' : 'light');
     setTheme(localStorage.getItem('mihomo-theme') || 'dark');
-    const lines = text => text.split('\n').map(x => x.trim()).filter(Boolean);
-    fileValues.value = localStorage.getItem('mihomo-values') || 'proxy_providers: []\nlocal_proxies: []\nlocal_rules: []\nproxy_rules: []\ndirect_rules: []\ngroup_rules: {}\n';
-    function setMode(next) { mode = next; localStorage.setItem('mihomo-mode', mode); const file = mode === 'file'; formEditor.hidden = file; fileEditor.hidden = !file; formMode.classList.toggle('active', !file); fileMode.classList.toggle('active', file); }
-    formMode.onclick = () => setMode('form'); fileMode.onclick = () => setMode('file'); setMode(mode);
-    function valuesFromForm() { const data = new FormData(form), values = {port: Number(data.get('port')), web_port: Number(data.get('web_port')), group_mode: data.get('group_mode'), proxy_providers: [], local_proxies: [], local_rules: [], proxy_rules: lines(data.get('proxy_rules')), direct_rules: lines(data.get('direct_rules')), group_rules: {}}; if (data.get('ip4p') === 'on') values.config_overrides = {experimental: {'dialer-ip4p-convert': true}}; if (data.get('web_secret').trim()) values.web_secret = data.get('web_secret').trim(); lines(data.get('providers')).forEach(line => { const [name, url, prefix] = line.split('|').map(x => x.trim()); if (name && url) { const provider = {name, url}; if (prefix) provider.prefix = prefix; values.proxy_providers.push(provider); } }); lines(data.get('group_rules')).forEach(line => { const split = line.indexOf(':'); if (split > 0) { const group = line.slice(0, split).trim(), rule = line.slice(split + 1).trim(); if (rule) (values.group_rules[group] ||= []).push(rule); } }); return values; }
-    form.onsubmit = async event => { event.preventDefault(); generate.disabled = true; download.disabled = true; status.textContent = '生成中…'; const values = mode === 'file' ? fileValues.value : valuesFromForm(); if (mode === 'file') localStorage.setItem('mihomo-values', values); try { const response = await fetch('/api/generate', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({values})}); const result = await response.json(); if (!response.ok) throw new Error(result.error || '生成失败'); config = result.config; download.disabled = false; status.textContent = '生成成功，可以点击下载 config.yaml。'; } catch (error) { status.textContent = '错误：' + error.message; } finally { generate.disabled = false; } };
+    fileValues.value = localStorage.getItem('mihomo-values') || 'proxy_providers: []\nlocal_proxies: []\nwireguard: []\ncustom_rule_providers: []\nlocal_rules: []\nproxy_rules: []\ndirect_rules: []\ngroup_rules: {}\n';
+    function setMode(next) {
+      mode = next;
+      localStorage.setItem('mihomo-mode', mode);
+      const file = mode === 'file';
+      formEditor.hidden = file;
+      formEditor.disabled = file;
+      fileEditor.hidden = !file;
+      formMode.classList.toggle('active', !file);
+      fileMode.classList.toggle('active', file);
+      if (!file) updateGroupHelp();
+    }
+    formMode.onclick = () => setMode('form');
+    fileMode.onclick = () => setMode('file');
+
+    function targetNames(data) {
+      const wgGroups = data.getAll('wg_name').map(name => String(name).trim()).filter(validName).map(name => `wg_${name}`);
+      return [...baseGroups, ...(data.get('group_mode') === 'detailed' ? detailedGroups : []), ...autoGroups, 'DIRECT', 'REJECT', ...wgGroups];
+    }
+    function updateGroupHelp() {
+      const data = new FormData(form);
+      const detailed = data.get('group_mode') === 'detailed';
+      const visible = [...baseGroups, ...(detailed ? detailedGroups : [])];
+      const wgGroups = targetNames(data).filter(name => name.startsWith('wg_'));
+      document.querySelector('#group-help').textContent = `当前 ${detailed ? 'detailed' : 'simple'} 内置组：${visible.join('、')}` + (wgGroups.length ? `。本表单 WG 组：${wgGroups.join('、')}` : '');
+      document.querySelector('#auto-group-help').textContent = autoGroups.join('、');
+      const options = targetNames(data).map(name => { const option = document.createElement('option'); option.value = name; return option; });
+      document.querySelector('#policy-targets').replaceChildren(...options);
+    }
+    formEditor.oninput = updateGroupHelp;
+    formEditor.onchange = updateGroupHelp;
+    function addEntry(template, container) {
+      document.querySelector(container).append(document.querySelector(template).content.cloneNode(true));
+      updateGroupHelp();
+    }
+    document.querySelector('#add-wg').onclick = () => addEntry('#wg-template', '#wg-entries');
+    document.querySelector('#add-rule-provider').onclick = () => addEntry('#rule-template', '#rule-entries');
+    for (const selector of ['#wg-entries', '#rule-entries']) {
+      document.querySelector(selector).onclick = event => {
+        if (event.target.matches('[data-remove]')) { event.target.closest('[data-entry]').remove(); updateGroupHelp(); }
+      };
+    }
+    setMode(mode);
+
+    function required(value, label) {
+      if (!value) throw new Error(`${label}不能为空`);
+      return value;
+    }
+    function integer(value, label, min, max) {
+      const number = Number(value);
+      if (!value || !Number.isInteger(number) || number < min || number > max) throw new Error(`${label}必须是 ${min}–${max} 的整数`);
+      return number;
+    }
+    function requireHttpUrl(value, label) {
+      try {
+        const parsed = new URL(value);
+        if (!/^https?:\/\//i.test(value) || !['http:', 'https:'].includes(parsed.protocol)) throw new Error();
+      } catch { throw new Error(`${label}必须是 http/https 直链`); }
+      return value;
+    }
+    function manualRules(value, label) {
+      return lines(value).map((rule, index) => {
+        if (/^https?:/i.test(rule)) throw new Error(`${label}第 ${index + 1} 行是 URL，请改用“外部规则集”`);
+        const fields = rule.split(',').map(field => field.trim());
+        if (fields.length !== 2 || fields.some(field => !field) || ['MATCH', 'AND', 'OR', 'NOT'].includes(fields[0])) throw new Error(`${label}第 ${index + 1} 行请只写“类型,匹配值”；完整规则请用 YAML 的 local_rules`);
+        return fields.join(',');
+      });
+    }
+    function readWireguard(data) {
+      const names = new Set();
+      return data.getAll('wg_name').map((_name, index) => {
+        const read = key => textAt(data, `wg_${key}`, index);
+        const label = `WG 第 ${index + 1} 项`;
+        const name = read('name');
+        if (!validName(name) || names.has(name)) throw new Error(`${label}名称应为不重复的小写英文标识，可含数字、下划线和连字符`);
+        names.add(name);
+        const node = {
+          name, server: required(read('server'), `${label}服务器`),
+          port: integer(read('port'), `${label}端口`, 1, 65535),
+          'private-key': required(read('private_key'), `${label}客户端私钥`),
+          'public-key': required(read('public_key'), `${label}服务端公钥`),
+          'allowed-ips': lines(read('allowed_ips')),
+        };
+        if (!read('ip') && !read('ipv6')) throw new Error(`${label}必须填写客户端 IPv4 或 IPv6`);
+        if (!node['allowed-ips'].length) throw new Error(`${label}必须填写 allowed-ips 网段`);
+        for (const [field, key] of [['ip', 'ip'], ['ipv6', 'ipv6'], ['preshared_key', 'pre-shared-key'], ['ip_version', 'ip-version']]) {
+          if (read(field)) node[key] = read(field);
+        }
+        if (read('mtu')) node.mtu = integer(read('mtu'), `${label}MTU`, 1, 65535);
+        if (read('keepalive')) node['persistent-keepalive'] = integer(read('keepalive'), `${label}保活秒数`, 0, 65535);
+        const domains = lines(read('domains'));
+        if (domains.length) node.domains = domains;
+        const routeMode = read('routes_mode');
+        if (routeMode === 'custom') {
+          node.routes = lines(read('routes'));
+          if (!node.routes.length) throw new Error(`${label}请选择或填写指定分流网段`);
+        } else if (routeMode === 'domains') {
+          node.routes = [];
+          if (!domains.length) throw new Error(`${label}仅域名分流时必须填写域名`);
+        } else if (routeMode !== 'auto') { throw new Error(`${label}分流方式无效`); }
+        return node;
+      });
+    }
+    function readRuleProviders(data, targets) {
+      const names = new Set();
+      return data.getAll('rule_name').map((_name, index) => {
+        const read = key => textAt(data, `rule_${key}`, index);
+        const label = `外部规则集第 ${index + 1} 项`;
+        const name = read('name');
+        if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name) || names.has(name)) throw new Error(`${label}名称应为不重复的英文、数字、下划线或连字符`);
+        names.add(name);
+        const provider = { name, type: 'http', url: requireHttpUrl(read('url'), label), behavior: read('behavior'), format: read('format'), policy: read('policy') };
+        if (!['domain', 'ipcidr', 'classical'].includes(provider.behavior) || !['mrs', 'yaml', 'text'].includes(provider.format)) throw new Error(`${label}内容类型或格式无效`);
+        if (provider.format === 'mrs' && provider.behavior === 'classical') throw new Error(`${label}的 MRS 格式不支持 classical，请选择 domain/ipcidr 或更换文件格式`);
+        if (!targets.includes(provider.policy)) throw new Error(`${label}目标分组在当前模式下不存在，请参考内置组列表`);
+        if (read('no_resolve') === 'no-resolve') provider.rule_options = ['no-resolve'];
+        return provider;
+      });
+    }
+    function valuesFromForm() {
+      const data = new FormData(form);
+      const targets = targetNames(data);
+      const values = {
+        port: integer(data.get('port'), '端口', 1, 65535), web_port: integer(data.get('web_port'), 'Web 端口', 1, 65535),
+        group_mode: data.get('group_mode'), proxy_providers: [], local_proxies: [], local_rules: [],
+        proxy_rules: manualRules(data.get('proxy_rules'), '代理规则'), direct_rules: manualRules(data.get('direct_rules'), '直连规则'), group_rules: {},
+        wireguard: readWireguard(data), custom_rule_providers: readRuleProviders(data, targets),
+      };
+      if (data.get('ip4p') === 'on') values.config_overrides = {experimental: {'dialer-ip4p-convert': true}};
+      if (data.get('web_secret').trim()) values.web_secret = data.get('web_secret').trim();
+      lines(data.get('providers')).forEach((line, index) => {
+        const fields = line.split('|').map(value => value.trim());
+        if (fields.length < 2 || fields.length > 3 || !fields[0]) throw new Error(`订阅第 ${index + 1} 行请写“名称 | URL | 前缀”`);
+        const provider = { name: fields[0], url: requireHttpUrl(fields[1], `订阅第 ${index + 1} 行`) };
+        if (fields[2]) provider.prefix = fields[2];
+        values.proxy_providers.push(provider);
+      });
+      lines(data.get('group_rules')).forEach((line, index) => {
+        const split = line.indexOf(':');
+        const group = line.slice(0, split).trim();
+        if (split <= 0 || !targets.includes(group)) throw new Error(`分组规则第 ${index + 1} 行的分组在当前模式下不存在，请参考上方列表`);
+        const rules = manualRules(line.slice(split + 1), `分组规则第 ${index + 1} 行`);
+        if (!rules.length) throw new Error(`分组规则第 ${index + 1} 行缺少匹配条件`);
+        (values.group_rules[group] ||= []).push(...rules);
+      });
+      return values;
+    }
+    form.onsubmit = async event => {
+      event.preventDefault(); generate.disabled = true; download.disabled = true; status.textContent = '生成中…';
+      try {
+        const values = mode === 'file' ? fileValues.value : valuesFromForm();
+        if (mode === 'file') localStorage.setItem('mihomo-values', values);
+        const response = await fetch('/api/generate', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({values})});
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || '生成失败');
+        config = result.config; download.disabled = false; status.textContent = '生成成功，可以点击下载 config.yaml。';
+      } catch (error) { status.textContent = '错误：' + error.message; }
+      finally { generate.disabled = false; }
+    };
     download.onclick = () => { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([config], {type: 'application/yaml'})); link.download = 'config.yaml'; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); };
   </script>
 </body>
