@@ -1,0 +1,39 @@
+---
+# WireGuard 内网快速配置示例。
+# 将地址和两个密钥替换为你自己的实际参数后，再运行生成器。
+# 示例没有可用密钥，不会使用任何私人订阅。
+proxy_providers: []
+local_proxies: []
+
+wireguard:
+  # 分组名 wg_office；节点名 wg_office_node。
+  - name: office
+    server: wg.example.com
+    port: 51820
+    ip: 10.7.0.2
+    private-key: REPLACE_WITH_CLIENT_PRIVATE_KEY
+    public-key: REPLACE_WITH_SERVER_PUBLIC_KEY
+    # pre-shared-key: REPLACE_WITH_PRESHARED_KEY  # 仅在服务端启用时填写
+    # mtu: 1420
+    # persistent-keepalive: 25
+    allowed-ips:
+      - 10.7.0.0/24
+      - 192.168.50.0/24
+    domains: []
+    # 默认按 allowed-ips 自动生成分流，无需再写规则。
+    # 如只需要其中一个网段，可显式收窄：
+    # routes:
+    #   - 192.168.50.0/24
+    # 可选内网域名；填写裸域名，会匹配自身及子域名。
+    # domains:
+    #   - office.internal
+    # 如需要使用隧道内 DNS，且该 DNS 地址确实可达：
+    # remote-dns-resolve: true
+    # dns: [10.7.0.1]
+
+# 不接管全局流量；所有非 WG 目标仍遵循原有分流规则。
+# 仍可通过 local_rules 覆盖自动分流：
+local_rules: []
+
+# 全局 IPv6 / IP4P 等实验功能继续在这里按需配置，默认不启用。
+config_overrides: {}

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Mihomo 配置生成器</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; --page: #111827; --text: #e5e7eb; --panel: #1f2937; --field: #030712; --border: #374151; --muted: #9ca3af; }
+    :root.light { color-scheme: light; --page: #f3f4f6; --text: #1f2937; --panel: #ffffff; --field: #ffffff; --border: #d1d5db; --muted: #6b7280; }
+    body { max-width: 1000px; margin: 0 auto; padding: 24px; background: var(--page); color: var(--text); }
+    .titlebar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .theme-toggle { margin: 0; padding: 8px 10px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: 20px; line-height: 1; }
+    section { margin: 18px 0; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
+    label { display: block; margin: 10px 0; } input, textarea, select { box-sizing: border-box; width: 100%; margin-top: 5px; padding: 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--field); color: var(--text); }
+    textarea { min-height: 100px; font: 14px/1.5 ui-monospace, monospace; } #file-values { min-height: 600px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+    button { margin: 12px 8px 12px 0; padding: 10px 18px; border: 0; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; }
+    button.active { background: #059669; } button:disabled { opacity: .6; cursor: wait; } .hint { color: var(--muted); } pre { white-space: pre-wrap; padding: 12px; border-radius: 6px; background: var(--panel); }
+  </style>
+</head>
+<body>
+  <div class="titlebar"><h1>Mihomo 配置生成器</h1><button type="button" id="theme-toggle" class="theme-toggle" aria-label="切换主题" title="切换到白天模式">☀️</button></div>
+  <p class="hint">可以直接填写参数，也可以直接编辑完整的 values.yaml。生成后可下载 config.yaml。</p>
+  <div><button type="button" id="form-mode" class="active">直接填写参数</button><button type="button" id="file-mode">编辑配置文件</button></div>
+  <form id="form">
+    <div id="form-editor">
+      <section><h2>基础设置</h2><div class="grid">
+        <label>端口<input name="port" type="number" value="7890"></label><label>Web 端口<input name="web_port" type="number" value="9090"></label>
+        <label>分组模式<select name="group_mode"><option value="simple">simple</option><option value="detailed">detailed</option></select></label><label>Web 密钥<input name="web_secret" placeholder="留空自动生成"></label>
+      </div></section>
+      <section><h2>订阅</h2><p class="hint">每行格式：名称 | URL | 前缀；前缀可省略。</p><textarea name="providers" placeholder="main | https://example.com/sub.yaml | Main"></textarea></section>
+      <section><h2>自定义规则</h2>
+        <label>直接代理到 proxy<textarea name="proxy_rules" placeholder="DOMAIN-SUFFIX,example.com"></textarea></label>
+        <label>直接连接到 DIRECT<textarea name="direct_rules" placeholder="DOMAIN-SUFFIX,lan.example.com"></textarea></label>
+        <label>插入其他内置组<textarea name="group_rules" placeholder="chat: DOMAIN-SUFFIX,t.me&#10;media: GEOSITE,youtube&#10;ai: DOMAIN-SUFFIX,example.ai"></textarea></label>
+      </section>
+    </div>
+    <div id="file-editor" hidden><section><h2>values.yaml</h2><textarea id="file-values" spellcheck="false"></textarea></section></div>
+    <button id="generate" type="submit">生成配置</button><button id="download" type="button" disabled>下载 config.yaml</button>
+  </form>
+  <pre id="status">就绪</pre>
+  <script>
+    const form = document.querySelector('#form'), formEditor = document.querySelector('#form-editor'), fileEditor = document.querySelector('#file-editor'), fileValues = document.querySelector('#file-values'), status = document.querySelector('#status');
+    const formMode = document.querySelector('#form-mode'), fileMode = document.querySelector('#file-mode'), themeToggle = document.querySelector('#theme-toggle'), generate = document.querySelector('#generate'), download = document.querySelector('#download'); let config = '', mode = localStorage.getItem('mihomo-mode') || 'form';
+    function setTheme(theme) { const light = theme === 'light'; document.documentElement.classList.toggle('light', light); localStorage.setItem('mihomo-theme', theme); themeToggle.textContent = light ? '🌙' : '☀️'; themeToggle.title = light ? '切换到黑夜模式' : '切换到白天模式'; themeToggle.setAttribute('aria-label', themeToggle.title); }
+    themeToggle.onclick = () => setTheme(document.documentElement.classList.contains('light') ? 'dark' : 'light');
+    setTheme(localStorage.getItem('mihomo-theme') || 'dark');
+    const lines = text => text.split('\n').map(x => x.trim()).filter(Boolean);
+    fileValues.value = localStorage.getItem('mihomo-values') || 'proxy_providers: []\nlocal_proxies: []\nlocal_rules: []\nproxy_rules: []\ndirect_rules: []\ngroup_rules: {}\n';
+    function setMode(next) { mode = next; localStorage.setItem('mihomo-mode', mode); const file = mode === 'file'; formEditor.hidden = file; fileEditor.hidden = !file; formMode.classList.toggle('active', !file); fileMode.classList.toggle('active', file); }
+    formMode.onclick = () => setMode('form'); fileMode.onclick = () => setMode('file'); setMode(mode);
+    function valuesFromForm() { const data = new FormData(form), values = {port: Number(data.get('port')), web_port: Number(data.get('web_port')), group_mode: data.get('group_mode'), proxy_providers: [], local_proxies: [], local_rules: [], proxy_rules: lines(data.get('proxy_rules')), direct_rules: lines(data.get('direct_rules')), group_rules: {}}; if (data.get('web_secret').trim()) values.web_secret = data.get('web_secret').trim(); lines(data.get('providers')).forEach(line => { const [name, url, prefix] = line.split('|').map(x => x.trim()); if (name && url) { const provider = {name, url}; if (prefix) provider.prefix = prefix; values.proxy_providers.push(provider); } }); lines(data.get('group_rules')).forEach(line => { const split = line.indexOf(':'); if (split > 0) { const group = line.slice(0, split).trim(), rule = line.slice(split + 1).trim(); if (rule) (values.group_rules[group] ||= []).push(rule); } }); return values; }
+    form.onsubmit = async event => { event.preventDefault(); generate.disabled = true; download.disabled = true; status.textContent = '生成中…'; const values = mode === 'file' ? fileValues.value : valuesFromForm(); if (mode === 'file') localStorage.setItem('mihomo-values', values); try { const response = await fetch('/api/generate', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({values})}); const result = await response.json(); if (!response.ok) throw new Error(result.error || '生成失败'); config = result.config; download.disabled = false; status.textContent = '生成成功，可以点击下载 config.yaml。'; } catch (error) { status.textContent = '错误：' + error.message; } finally { generate.disabled = false; } };
+    download.onclick = () => { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([config], {type: 'application/yaml'})); link.download = 'config.yaml'; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); };
+  </script>
+</body>
+</html>

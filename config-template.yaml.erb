@@ -30,7 +30,8 @@ keep-alive-interval: 1800
 # 外部控制地址，默认只监听本机
 external-controller: <%= yaml_scalar(":#{web_port}") %>
 # Web 面板目录
-external-ui: "./Yacd-meta-gh-pages/"
+external-ui: <%= yaml_scalar(external_ui) %>
+external-ui-url: <%= yaml_scalar(external_ui_url) %>
 # 面板/API 鉴权密码
 secret: <%= yaml_scalar(web_secret) %>
 
@@ -171,8 +172,10 @@ dns:
       - "+.chatgpt.com"
 <% end -%>
 
-  # 这些域名不走 fake-ip，避免兼容性问题
+  # 返回真实 IP 的 DNS 兼容例外，不决定流量是否直连。
+  # basic 为精简默认；compat 保留历史音乐/游戏等完整例外。
   fake-ip-filter:
+<% if fake_ip_filter_mode == 'compat' -%>
     - "*.lan"
     - "*.localdomain"
     - "*.example"
@@ -262,6 +265,30 @@ dns:
     - "*.square-enix.com"
     - "*.finalfantasyxiv.com"
     - "*.ffxiv.com"
+<% else -%>
+    # 内网和本机
+    - "localhost"
+    - "*.lan"
+    - "*.local"
+    - "*.localdomain"
+    - "*.localhost"
+    - "*.home.arpa"
+    # 常用校时域名
+    - "+.pool.ntp.org"
+    - "time.*.com"
+    - "time.*.gov"
+    - "time.*.edu.cn"
+    - "ntp.*.com"
+    # STUN / NAT 穿透
+    - "stun.*.*"
+    - "stun.*.*.*"
+    - "+.stun.*.*"
+    - "+.stun.*.*.*"
+    - "+.stun.*.*.*.*"
+    # Windows 网络连通性检测
+    - "+.msftconnecttest.com"
+    - "+.msftncsi.com"
+<% end -%>
 
 # ========================
 # 复用锚点
@@ -281,7 +308,6 @@ pr: &pr
     - sg
     - others
     - all_nodes
-    - auto_select
     - DIRECT
 <% local_proxy_group_names_for("steam", "google", "telegram", "twitter", "ehentai", "bilibili_sea", "bahamut", "youtube", "netflix", "spotify", "github", "other").each do |name| -%>
     - <%= yaml_scalar(name) %>
@@ -318,10 +344,10 @@ direct_asia_pr: &direct_asia_pr
 
 # 订阅提供者的默认参数
 provider_defaults: &provider_defaults
-  # 从远端拉取订阅
+  # 从远端拉取订阅，默认直连，保证无代理节点时仍可更新。
   type: http
-  # 订阅刷新间隔，单位秒
   interval: 3600
+  proxy: DIRECT
   health-check:
     # 是否启用健康检查
     enable: true
@@ -332,15 +358,15 @@ provider_defaults: &provider_defaults
 
 # 使用订阅节点的策略组默认参数
 provider_use_defaults: &provider_use_defaults
-  # 手写节点组始终混入订阅策略组；没有手写节点时该组以 DIRECT 兜底
+  # Always keep a local DIRECT-capable path, even when subscriptions are absent.
   type: select
   proxies:
     - my_proxy
 <% unless provider_names.empty? -%>
-  # 使用 values 文件中定义的所有远程订阅
+  # Use all remote subscriptions configured in values.
   use:
 <% provider_names.each do |name| -%>
-    - <%= name %>
+    - <%= yaml_scalar(name) %>
 <% end -%>
 <% end -%>
 
@@ -349,13 +375,15 @@ regional_url_test_defaults: &regional_url_test_defaults
   type: url-test
 <%= render_hash(url_test, indent: 2) -%>
 <% if provider_names.empty? -%>
-  # 没有远程订阅时通过 my_proxy 回退到手写节点或 DIRECT
+  # No subscription: my_proxy itself falls back to DIRECT when necessary.
   proxies:
     - my_proxy
 <% else -%>
+  # With providers present, only filtered provider nodes enter the region group.
+  # This prevents DIRECT or an unrelated local node from winning the url-test.
   use:
 <% provider_names.each do |name| -%>
-    - <%= name %>
+    - <%= yaml_scalar(name) %>
 <% end -%>
 <% end -%>
 
@@ -383,19 +411,41 @@ proxy-providers:
 # ========================
 
 rule-providers:
-  # 广告域名规则集
+  # MetaCubeX MRS 规则集；全部默认直连下载，避免依赖尚未可用的代理组。
+<% TemplateContext::BUILTIN_DOMAIN_RULE_SOURCES.each do |name, source| -%>
+  <%= name %>:
+    type: http
+    behavior: domain
+    format: mrs
+    url: <%= yaml_scalar("https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/#{source}.mrs") %>
+    path: <%= yaml_scalar("./rule_providers/#{name}.mrs") %>
+    interval: 86400
+    proxy: DIRECT
+<% end -%>
+<% TemplateContext::BUILTIN_IP_RULE_SOURCES.each do |name, source| -%>
+  <%= name %>:
+    type: http
+    behavior: ipcidr
+    format: mrs
+    url: <%= yaml_scalar("https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/#{source}.mrs") %>
+    path: <%= yaml_scalar("./rule_providers/#{name}.mrs") %>
+    interval: 86400
+    proxy: DIRECT
+<% end -%>
+  # 恢复旧版广告聚合源；MRS 与上游 YAML 同系列，8 小时刷新。
   adblock_mihomo:
     type: http
     behavior: domain
-    format: yaml
-    url: "https://raw.githubusercontent.com/217heidai/adblockfilters/main/rules/adblockmihomo.yaml"
-    path: "./rule_providers/adblock_mihomo.yaml"
+    format: mrs
+    url: https://raw.githubusercontent.com/217heidai/adblockfilters/main/rules/adblockmihomo.mrs
+    path: ./rule_providers/adblock_mihomo.mrs
     interval: 28800
+    proxy: DIRECT
 <% unless custom_rule_providers.empty? -%>
 
-  # values 文件中的自定义规则集
+  # values 文件中的自定义规则集。
 <% custom_rule_providers.each do |provider| -%>
-  <%= provider.fetch("name") %>:
+  <%= yaml_scalar(provider.fetch("name")) %>:
 <%= render_hash(custom_rule_provider_body(provider), indent: 4) -%>
 <% end -%>
 <% end -%>
@@ -405,45 +455,77 @@ rule-providers:
 # ========================
 
 proxies:
-<%= render_list(local_proxies, indent: 2) -%>
+<%= render_list(local_proxies + wireguard.proxies, indent: 2) -%>
 
 # ========================
 # 策略组
 # ========================
 
+<% simple_groups = %w[ai game media chat dev cloud download adult china other] -%>
+<% detailed_groups = {
+  'openai' => 'ai', 'claude' => 'ai', 'gemini' => 'ai', 'copilot' => 'ai',
+  'steam' => 'game', 'epic' => 'game', 'blizzard' => 'game', 'ps' => 'game',
+  'xbox' => 'game', 'nintendo' => 'game',
+  'youtube' => 'media', 'netflix' => 'media', 'disney' => 'media', 'prime' => 'media',
+  'hbo' => 'media', 'twitch' => 'media', 'spotify' => 'media',
+  'telegram' => 'chat', 'discord' => 'chat', 'whatsapp' => 'chat', 'x' => 'chat',
+  'github' => 'dev', 'gitlab' => 'dev', 'docker' => 'dev',
+  'google' => 'cloud', 'apple' => 'cloud', 'microsoft' => 'cloud', 'onedrive' => 'cloud'
+} -%>
+<% region_groups = %w[hk jp tw sg us kr eu others] -%>
+<% built_in_groups = %w[default proxy my_proxy ad_block all_nodes final domestic other] + simple_groups + detailed_groups.keys + region_groups -%>
 proxy-groups:
-  # 全局默认出口
+  # 全局入口；保留 default 名称兼容已有配置。
   - name: default
     type: select
     proxies:
-      - DIRECT
-      - my_proxy
-      - hk
-      - jp
-      - tw
-      - us
-      - sg
-      - others
+      - proxy
+      - ai
+      - game
+      - media
+      - chat
+      - dev
+      - cloud
+      - download
+      - adult
+      - china
       - all_nodes
-      - auto_select
-<% local_proxy_group_names_for("default").each do |name| -%>
+      - DIRECT
+<% local_proxy_group_names_for(*built_in_groups).each do |name| -%>
       - <%= yaml_scalar(name) %>
 <% end -%>
 
-  # 手写静态节点入口，便于手动切换，并混入其他节点策略组
+  # 主代理组。
+  - name: proxy
+    type: select
+    proxies:
+      - all_nodes
+      - hk
+      - jp
+      - tw
+      - sg
+      - us
+      - kr
+      - eu
+      - others
+      - my_proxy
+      - DIRECT
+<% local_proxy_group_names_for(*built_in_groups).each do |name| -%>
+      - <%= yaml_scalar(name) %>
+<% end -%>
+
+  # 手写节点入口；为空时自动回退 DIRECT。
   - name: my_proxy
     type: select
-<% if local_proxy_names.empty? -%>
     proxies:
+<% if local_proxy_names.empty? -%>
       - DIRECT
 <% else -%>
-    proxies:
 <% local_proxy_names.each do |name| -%>
-      - <%= name %>
+      - <%= yaml_scalar(name) %>
 <% end -%>
 <% end -%>
 
-  # 广告拦截动作
   - name: ad_block
     type: select
     proxies:
@@ -451,242 +533,307 @@ proxy-groups:
       - DIRECT
 <% unless local_proxy_groups.empty? -%>
 
-  # values 文件中的手写自定义策略组，优先放在业务组和地区组之前
+  # 用户自定义策略组。
 <%= render_list(local_proxy_groups, indent: 2) -%>
 <% end -%>
 
-  # 业务策略组
-  - name: steam
-    <<: *pr
-
-  - name: apple
-    <<: *direct_asia_no_hk_pr
-
-  - name: google
-    <<: *pr
-
-  - name: openai
-    type: select
-    proxies:
-      - my_proxy
-      - jp
-      - tw
-      - us
-      - sg
-      - others
-<% local_proxy_group_names_for("openai").each do |name| -%>
-      - <%= yaml_scalar(name) %>
+<% unless wireguard.groups.empty? -%>
+  # 内网 WG 专用组，不加入普通代理出口；可手动切到 REJECT 停用。
+<%= render_list(wireguard.groups, indent: 2) -%>
 <% end -%>
 
-  - name: telegram
-    <<: *pr
+  # 简单模式入口；详细模式同样保留，作为详细服务组的父级。
+<% simple_groups.each do |name| -%>
+  - name: <%= name %>
+    type: select
+    proxies:
+<% if name == 'china' -%>
+      - DIRECT
+      - proxy
+<% else -%>
+      - proxy
+<% end -%>
+      - hk
+      - jp
+      - tw
+      - sg
+      - us
+      - kr
+      - eu
+      - others
+      - DIRECT
+<% blocked = [name] + detailed_groups.select { |_, parent| parent == name }.keys -%>
+<% local_proxy_group_names_for(*built_in_groups).each do |custom_name| -%>
+      - <%= yaml_scalar(custom_name) %>
+<% end -%>
+<% end -%>
 
-  - name: twitter
-    <<: *pr
+<% if group_mode == 'detailed' -%>
+  # 详细服务组默认先使用对应的简单父组。
+<% detailed_groups.each do |name, parent| -%>
+  - name: <%= name %>
+    type: select
+    proxies:
+      - <%= parent %>
+      - proxy
+      - hk
+      - jp
+      - tw
+      - sg
+      - us
+      - kr
+      - eu
+      - others
+      - DIRECT
+<% local_proxy_group_names_for(*built_in_groups).each do |custom_name| -%>
+      - <%= yaml_scalar(custom_name) %>
+<% end -%>
+<% end -%>
+<% end -%>
 
-  - name: ehentai
-    <<: *pr
-
-  - name: bilibili
-    <<: *direct_asia_pr
-
-  - name: bilibili_sea
-    <<: *pr
-
-  - name: bahamut
-    <<: *pr
-
-  - name: youtube
-    <<: *pr
-
-  - name: netflix
-    <<: *pr
-
-  - name: spotify
-    <<: *pr
-
-  - name: github
-    <<: *pr
+  # 最终兜底与旧名称兼容组。
+  - name: final
+    type: select
+    proxies:
+      - proxy
+      - DIRECT
+<% local_proxy_group_names_for(*built_in_groups).each do |name| -%>
+      - <%= yaml_scalar(name) %>
+<% end -%>
 
   - name: domestic
     type: select
     proxies:
-      - DIRECT
-      - my_proxy
-      - default
-      - hk
-      - jp
-      - tw
-      - us
-      - sg
-      - others
-      - all_nodes
-      - auto_select
-<% local_proxy_group_names_for("domestic").each do |name| -%>
-      - <%= yaml_scalar(name) %>
-<% end -%>
+      - china
 
-  - name: other
-    <<: *pr
-
-  # 所有订阅节点
+  # 所有订阅节点和全局自动测速。
   - name: all_nodes
     <<: *provider_use_defaults
 
-  # 全局自动测速选择节点
-  - name: auto_select
-    type: url-test
-<%= render_hash(url_test, indent: 4) -%>
-    proxies:
-      - my_proxy
-<% unless provider_names.empty? -%>
-      - DIRECT
-    use:
-<% provider_names.each do |name| -%>
-      - <%= name %>
-<% end -%>
-<% end -%>
 
-  # 地区手动/自动组统一放在 proxy-groups 最后
+  # 地区组支持手动选择；默认项是隐藏的 url-test 自动组。
   - name: hk
     <<: *provider_use_defaults
-    proxies:
-      - hk_auto
-      - my_proxy
+    default-selected: hk_auto
+    proxies: [hk_auto, my_proxy]
     filter: "(?i)(🇭🇰|香港|港(?![澳台])|(^|[^a-z])(hk|hkg|hong[ _-]?kong)([^a-z]|$))"
     exclude-filter: "(?i)(澳門|澳门|macao|macau)"
 
   - name: hk_auto
     <<: *regional_url_test_defaults
+    hidden: true
     filter: "(?i)(🇭🇰|香港|港(?![澳台])|(^|[^a-z])(hk|hkg|hong[ _-]?kong)([^a-z]|$))"
     exclude-filter: "(?i)(澳門|澳门|macao|macau)"
 
+
   - name: jp
     <<: *provider_use_defaults
-    proxies:
-      - jp_auto
-      - my_proxy
+    default-selected: jp_auto
+    proxies: [jp_auto, my_proxy]
     filter: "(?i)(🇯🇵|日本|(^|[^a-z])(jp|jpn|japan|tokyo|osaka)([^a-z]|$))"
 
   - name: jp_auto
     <<: *regional_url_test_defaults
+    hidden: true
     filter: "(?i)(🇯🇵|日本|(^|[^a-z])(jp|jpn|japan|tokyo|osaka)([^a-z]|$))"
+
 
   - name: tw
     <<: *provider_use_defaults
-    proxies:
-      - tw_auto
-      - my_proxy
-    filter: "(?i)(🇹🇼|台湾|(^|[^a-z])(tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
+    default-selected: tw_auto
+    proxies: [tw_auto, my_proxy]
+    filter: "(?i)(🇹🇼|台湾|台灣|(^|[^a-z])(tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
     exclude-filter: "(?i)(hong[ _-]?kong|hk|hkg|macau|macao)"
 
   - name: tw_auto
     <<: *regional_url_test_defaults
-    filter: "(?i)(🇹🇼|台湾|(^|[^a-z])(tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
+    hidden: true
+    filter: "(?i)(🇹🇼|台湾|台灣|(^|[^a-z])(tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
     exclude-filter: "(?i)(hong[ _-]?kong|hk|hkg|macau|macao)"
+
+
+  - name: sg
+    <<: *provider_use_defaults
+    default-selected: sg_auto
+    proxies: [sg_auto, my_proxy]
+    filter: "(?i)(🇸🇬|新加坡|狮城|獅城|(^|[^a-z])(sg|sgp|singapore)([^a-z]|$))"
+
+  - name: sg_auto
+    <<: *regional_url_test_defaults
+    hidden: true
+    filter: "(?i)(🇸🇬|新加坡|狮城|獅城|(^|[^a-z])(sg|sgp|singapore)([^a-z]|$))"
+
 
   - name: us
     <<: *provider_use_defaults
-    proxies:
-      - us_auto
-      - my_proxy
-    filter: "(?i)(🇺🇸|美国|(^|[^a-z])(us|usa|united[ _-]?states|america)([^a-z]|$)|los[ _-]?angeles|san[ _-]?jose|silicon[ _-]?valley|new[ _-]?york|seattle|chicago)"
+    default-selected: us_auto
+    proxies: [us_auto, my_proxy]
+    filter: "(?i)(🇺🇸|美国|美國|(^|[^a-z])(us|usa|united[ _-]?states|america)([^a-z]|$)|los[ _-]?angeles|san[ _-]?jose|new[ _-]?york|seattle|chicago)"
     exclude-filter: "(?i)(australia|au|aus)"
 
   - name: us_auto
     <<: *regional_url_test_defaults
-    filter: "(?i)(🇺🇸|美国|(^|[^a-z])(us|usa|united[ _-]?states|america)([^a-z]|$)|los[ _-]?angeles|san[ _-]?jose|silicon[ _-]?valley|new[ _-]?york|seattle|chicago)"
+    hidden: true
+    filter: "(?i)(🇺🇸|美国|美國|(^|[^a-z])(us|usa|united[ _-]?states|america)([^a-z]|$)|los[ _-]?angeles|san[ _-]?jose|new[ _-]?york|seattle|chicago)"
     exclude-filter: "(?i)(australia|au|aus)"
 
-  - name: sg
-    <<: *provider_use_defaults
-    proxies:
-      - sg_auto
-      - my_proxy
-    filter: "(?i)(🇸🇬|新加坡|狮城|(^|[^a-z])(sg|sgp|singapore)([^a-z]|$))"
 
-  - name: sg_auto
+  - name: kr
+    <<: *provider_use_defaults
+    default-selected: kr_auto
+    proxies: [kr_auto, my_proxy]
+    filter: "(?i)(🇰🇷|韩国|韓國|首尔|首爾|(^|[^a-z])(kr|kor|korea|seoul)([^a-z]|$))"
+
+  - name: kr_auto
     <<: *regional_url_test_defaults
-    filter: "(?i)(🇸🇬|新加坡|狮城|(^|[^a-z])(sg|sgp|singapore)([^a-z]|$))"
+    hidden: true
+    filter: "(?i)(🇰🇷|韩国|韓國|首尔|首爾|(^|[^a-z])(kr|kor|korea|seoul)([^a-z]|$))"
+
+
+  - name: eu
+    <<: *provider_use_defaults
+    default-selected: eu_auto
+    proxies: [eu_auto, my_proxy]
+    filter: "(?i)(🇬🇧|🇩🇪|🇫🇷|🇳🇱|🇮🇹|🇪🇸|🇸🇪|🇨🇭|🇦🇹|🇵🇱|🇷🇺|欧洲|歐洲|英国|英國|德国|德國|法国|法國|荷兰|荷蘭|意大利|西班牙|瑞典|瑞士|奥地利|奧地利|波兰|波蘭|俄罗斯|俄羅斯|(^|[^a-z])(eu|europe|gb|gbr|uk|united[ _-]?kingdom|england|london|de|deu|germany|berlin|fr|fra|france|paris|nl|nld|netherlands|it|ita|italy|es|esp|spain|se|swe|sweden|ch|che|switzerland|at|aut|austria|pl|pol|poland|ru|rus|russia)([^a-z]|$))"
+
+  - name: eu_auto
+    <<: *regional_url_test_defaults
+    hidden: true
+    filter: "(?i)(🇬🇧|🇩🇪|🇫🇷|🇳🇱|🇮🇹|🇪🇸|🇸🇪|🇨🇭|🇦🇹|🇵🇱|🇷🇺|欧洲|歐洲|英国|英國|德国|德國|法国|法國|荷兰|荷蘭|意大利|西班牙|瑞典|瑞士|奥地利|奧地利|波兰|波蘭|俄罗斯|俄羅斯|(^|[^a-z])(eu|europe|gb|gbr|uk|united[ _-]?kingdom|england|london|de|deu|germany|berlin|fr|fra|france|paris|nl|nld|netherlands|it|ita|italy|es|esp|spain|se|swe|sweden|ch|che|switzerland|at|aut|austria|pl|pol|poland|ru|rus|russia)([^a-z]|$))"
+
 
   - name: others
     <<: *provider_use_defaults
-    proxies:
-      - others_auto
-      - my_proxy
+    default-selected: others_auto
+    proxies: [others_auto, my_proxy]
     filter: ".+"
-    exclude-filter: "(?i)(🇭🇰|🇹🇼|🇯🇵|🇺🇸|🇸🇬|🇨🇳|香港|台湾|日本|美国|新加坡|(^|[^a-z])(hk|hkg|hong[ _-]?kong|tw|twn|tpe|taipei|taiwan|jp|jpn|japan|us|usa|united[ _-]?states|america|sg|sgp|singapore)([^a-z]|$))"
+    exclude-filter: "(?i)(🇭🇰|🇹🇼|🇯🇵|🇺🇸|🇸🇬|🇰🇷|🇬🇧|🇩🇪|🇫🇷|🇳🇱|🇮🇹|🇪🇸|🇸🇪|🇨🇭|🇦🇹|🇵🇱|🇷🇺|🇨🇳|香港|台湾|台灣|日本|美国|美國|新加坡|韩国|韓國|欧洲|歐洲|中国|中國|(^|[^a-z])(hk|hkg|tw|twn|jp|jpn|us|usa|sg|sgp|kr|kor|eu|europe|gb|gbr|uk|de|deu|fr|fra|nl|nld|it|ita|es|esp|se|swe|ch|che|at|aut|pl|pol|ru|rus|cn|chn|china)([^a-z]|$))"
 
   - name: others_auto
     <<: *regional_url_test_defaults
+    hidden: true
     filter: ".+"
-    exclude-filter: "(?i)(🇭🇰|🇹🇼|🇯🇵|🇺🇸|🇸🇬|🇨🇳|香港|台湾|日本|美国|新加坡|(^|[^a-z])(hk|hkg|hong[ _-]?kong|tw|twn|tpe|taipei|taiwan|jp|jpn|japan|us|usa|united[ _-]?states|america|sg|sgp|singapore)([^a-z]|$))"
+    exclude-filter: "(?i)(🇭🇰|🇹🇼|🇯🇵|🇺🇸|🇸🇬|🇰🇷|🇬🇧|🇩🇪|🇫🇷|🇳🇱|🇮🇹|🇪🇸|🇸🇪|🇨🇭|🇦🇹|🇵🇱|🇷🇺|🇨🇳|香港|台湾|台灣|日本|美国|美國|新加坡|韩国|韓國|欧洲|歐洲|中国|中國|(^|[^a-z])(hk|hkg|tw|twn|jp|jpn|us|usa|sg|sgp|kr|kor|eu|europe|gb|gbr|uk|de|deu|fr|fra|nl|nld|it|ita|es|esp|se|swe|ch|che|at|aut|pl|pol|ru|rus|cn|chn|china)([^a-z]|$))"
+
 
 # ========================
 # 规则
 # ========================
-
 rules:
-  # values 文件中的自定义规则，优先级最高
+  # values 自定义规则优先级最高。
 <% local_rules.each do |rule| -%>
   - <%= rule %>
 <% end -%>
-
-  # SSH 相关流量始终直连
+<% proxy_rules.each do |rule| -%>
+  - <%= rule_for_policy(rule, 'proxy') %>
+<% end -%>
+<% direct_rules.each do |rule| -%>
+  - <%= rule_for_policy(rule, 'DIRECT') %>
+<% end -%>
+<% group_rules.each do |group, rules| -%>
+<% rules.each do |rule| -%>
+  - <%= rule_for_policy(rule, group) %>
+<% end -%>
+<% end -%>
+<% wireguard.rules.each do |rule| -%>
+  - <%= yaml_scalar(rule) %>
+<% end -%>
   - PROCESS-NAME,ssh,DIRECT
   - PROCESS-NAME,scp,DIRECT
   - PROCESS-NAME,sftp,DIRECT
   - PROCESS-NAME,rsync,DIRECT
   - DST-PORT,22,DIRECT
-
-<% unless custom_rule_providers.empty? -%>
-  # values 文件中的自定义规则集引用
 <% custom_rule_providers.each do |provider| -%>
   - <%= custom_rule_provider_rule(provider) %>
 <% end -%>
 
-<% end -%>
-  # 广告过滤
+  # 基础规则集：局域网、两类广告源及 Tracker。
+  - RULE-SET,private,DIRECT
+  - RULE-SET,private_ip,DIRECT,no-resolve
   - RULE-SET,adblock_mihomo,ad_block
+  - RULE-SET,ads,ad_block
+  - RULE-SET,tracker,download
 
-  # 站点分流
-  - DOMAIN-SUFFIX,chatgpt.com,openai
-  - DOMAIN-SUFFIX,oaistatic.com,openai
-  - DOMAIN-SUFFIX,oaiusercontent.com,openai
-  - DOMAIN-SUFFIX,openai.com,openai
-  - DOMAIN-SUFFIX,openai.com.cdn.cloudflare.net,openai
-  - DOMAIN-SUFFIX,openaiapi-site.azureedge.net,openai
-  - DOMAIN-SUFFIX,openaicom-api-bdcpf8c6d2e9atf6.z01.azurefd.net,openai
-  - DOMAIN-SUFFIX,openaicomproductionae4b.blob.core.windows.net,openai
-  - DOMAIN-SUFFIX,production-openaicom-storage.azureedge.net,openai
+<% route = ->(simple, detailed) { group_mode == 'detailed' ? detailed : simple } -%>
+  # AI：专用规则优先，综合 AI 集合兜底。
+  - RULE-SET,openai_domain,<%= route.call('ai', 'openai') %>
+  - RULE-SET,claude_domain,<%= route.call('ai', 'claude') %>
+  - RULE-SET,gemini_domain,<%= route.call('ai', 'gemini') %>
+  - RULE-SET,copilot_domain,<%= route.call('ai', 'copilot') %>
+  - DOMAIN-SUFFIX,chatgpt.com,<%= route.call('ai', 'openai') %>
+  - DOMAIN-SUFFIX,oaistatic.com,<%= route.call('ai', 'openai') %>
+  - DOMAIN-SUFFIX,oaiusercontent.com,<%= route.call('ai', 'openai') %>
+  - DOMAIN-SUFFIX,openai.com,<%= route.call('ai', 'openai') %>
+  - DOMAIN-SUFFIX,openai.com.cdn.cloudflare.net,<%= route.call('ai', 'openai') %>
+  - DOMAIN-SUFFIX,openaiapi-site.azureedge.net,<%= route.call('ai', 'openai') %>
+  - DOMAIN-SUFFIX,openaicom-api-bdcpf8c6d2e9atf6.z01.azurefd.net,<%= route.call('ai', 'openai') %>
+  - DOMAIN-SUFFIX,openaicomproductionae4b.blob.core.windows.net,<%= route.call('ai', 'openai') %>
+  - DOMAIN-SUFFIX,production-openaicom-storage.azureedge.net,<%= route.call('ai', 'openai') %>
+  - DOMAIN-SUFFIX,anthropic.com,<%= route.call('ai', 'claude') %>
+  - DOMAIN-SUFFIX,claude.ai,<%= route.call('ai', 'claude') %>
+  - DOMAIN-SUFFIX,claudeusercontent.com,<%= route.call('ai', 'claude') %>
+  - DOMAIN-SUFFIX,gemini.google.com,<%= route.call('ai', 'gemini') %>
+  - DOMAIN-SUFFIX,generativelanguage.googleapis.com,<%= route.call('ai', 'gemini') %>
+  - DOMAIN-SUFFIX,ai.google.dev,<%= route.call('ai', 'gemini') %>
+  - DOMAIN-SUFFIX,copilot.microsoft.com,<%= route.call('ai', 'copilot') %>
+  - DOMAIN-SUFFIX,githubcopilot.com,<%= route.call('ai', 'copilot') %>
 
-  - GEOSITE,apple,apple
-  - GEOSITE,apple-cn,apple
-  - GEOSITE,steam,steam
-  - GEOSITE,biliintl,bilibili_sea
-  - GEOSITE,ehentai,ehentai
-  - GEOSITE,github,github
-  - GEOSITE,twitter,twitter
-  - GEOSITE,youtube,youtube
-  - GEOSITE,google,google
-  - GEOSITE,google-cn,google
-  - GEOSITE,telegram,telegram
-  - GEOSITE,netflix,netflix
-  - GEOSITE,bilibili,bilibili
-  - GEOSITE,bahamut,bahamut
-  - GEOSITE,spotify,spotify
+  - RULE-SET,ai_domain,ai
 
-  - GEOIP,google,google
-  - GEOIP,netflix,netflix
-  - GEOIP,telegram,telegram
-  - GEOIP,twitter,twitter
+  # Game
+  - RULE-SET,steam_domain,<%= route.call('game', 'steam') %>
+  - RULE-SET,epic_domain,<%= route.call('game', 'epic') %>
+  - RULE-SET,blizzard_domain,<%= route.call('game', 'blizzard') %>
+  - RULE-SET,ps_domain,<%= route.call('game', 'ps') %>
+  - RULE-SET,xbox_domain,<%= route.call('game', 'xbox') %>
+  - RULE-SET,nintendo_domain,<%= route.call('game', 'nintendo') %>
+  - RULE-SET,games_domain,game
 
-  # 中国大陆流量优先直连
-  - GEOSITE,CN,domestic
-  - GEOIP,CN,domestic
+  # Media
+  - RULE-SET,youtube_domain,<%= route.call('media', 'youtube') %>
+  - RULE-SET,netflix_domain,<%= route.call('media', 'netflix') %>
+  - RULE-SET,disney_domain,<%= route.call('media', 'disney') %>
+  - RULE-SET,prime_domain,<%= route.call('media', 'prime') %>
+  - RULE-SET,hbo_domain,<%= route.call('media', 'hbo') %>
+  - RULE-SET,twitch_domain,<%= route.call('media', 'twitch') %>
+  - RULE-SET,spotify_domain,<%= route.call('media', 'spotify') %>
+  - RULE-SET,bilibili_domain,media
+  - RULE-SET,biliintl_domain,media
+  - RULE-SET,bahamut_domain,media
 
-  # 非中国大陆站点默认走全局代理，优先级放在兜底前
-  - GEOSITE,geolocation-!cn,default
+  # Chat
+  - RULE-SET,telegram_domain,<%= route.call('chat', 'telegram') %>
+  - DOMAIN-SUFFIX,telegram.org,<%= route.call('chat', 'telegram') %>
+  - DOMAIN-SUFFIX,telegram.me,<%= route.call('chat', 'telegram') %>
+  - DOMAIN-SUFFIX,t.me,<%= route.call('chat', 'telegram') %>
+  - DOMAIN-SUFFIX,telegra.ph,<%= route.call('chat', 'telegram') %>
+  - RULE-SET,discord_domain,<%= route.call('chat', 'discord') %>
+  - RULE-SET,whatsapp_domain,<%= route.call('chat', 'whatsapp') %>
+  - RULE-SET,twitter_domain,<%= route.call('chat', 'x') %>
+  - RULE-SET,facebook_domain,chat
+  - RULE-SET,instagram_domain,chat
+  - RULE-SET,reddit_domain,chat
 
-  # 其他流量走兜底策略
-  - MATCH,other
+  # Dev and cloud：专用服务先于厂商大集合。
+  - RULE-SET,github_domain,<%= route.call('dev', 'github') %>
+  - RULE-SET,gitlab_domain,<%= route.call('dev', 'gitlab') %>
+  - RULE-SET,docker_domain,<%= route.call('dev', 'docker') %>
+  - RULE-SET,google_domain,<%= route.call('cloud', 'google') %>
+  - RULE-SET,google_cn_domain,<%= route.call('cloud', 'google') %>
+  - RULE-SET,apple_domain,<%= route.call('cloud', 'apple') %>
+  - RULE-SET,apple_cn_domain,<%= route.call('cloud', 'apple') %>
+  - RULE-SET,onedrive_domain,<%= route.call('cloud', 'onedrive') %>
+  - RULE-SET,microsoft_domain,<%= route.call('cloud', 'microsoft') %>
+  - RULE-SET,ehentai_domain,adult
+
+  # 恢复旧版服务 IP 分流；放在服务域名之后，避免共享 IP 抢先匹配。
+  - RULE-SET,google_ip,<%= route.call('cloud', 'google') %>,no-resolve
+  - RULE-SET,netflix_ip,<%= route.call('media', 'netflix') %>,no-resolve
+  - RULE-SET,telegram_ip,<%= route.call('chat', 'telegram') %>,no-resolve
+  - RULE-SET,twitter_ip,<%= route.call('chat', 'x') %>,no-resolve
+
+  # 国内、国外与最终兜底。
+  - RULE-SET,cn,china
+  - RULE-SET,cn_ip,china,no-resolve
+  - RULE-SET,non_cn,proxy
+  - MATCH,final

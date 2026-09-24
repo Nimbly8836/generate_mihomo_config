@@ -5,6 +5,7 @@ require 'erb'
 require 'optparse'
 require 'psych'
 require 'securerandom'
+require_relative 'lib/wireguard_config'
 
 DEFAULT_TEMPLATE = 'config-template.yaml.erb'
 DEFAULT_OUTPUT = 'config.yaml'
@@ -12,7 +13,8 @@ DEFAULT_SCALARS = {
   'port' => 7890,
   'web_port' => 9090,
   'tun_device' => 'utun-mihomo',
-  'dns_split_cn_foreign' => false
+  'dns_split_cn_foreign' => false,
+  'group_mode' => 'simple'
 }.freeze
 
 def usage(parser)
@@ -39,6 +41,7 @@ def apply_defaults(values)
   applied = {}
 
   DEFAULT_SCALARS.each do |key, default_value|
+    next if key == 'group_mode' && normalized.key?('group-mode')
     next unless blank_value?(normalized[key])
 
     normalized[key] = default_value
@@ -97,6 +100,33 @@ def append_fake_ip_filter(output, extra_filters)
   lines.join
 end
 
+# Mappings merge recursively; arrays and scalars (including false/nil) replace.
+# Non-mutating merge prevents a YAML anchor shared by other groups from changing.
+def deep_merge_config(base, overrides)
+  merged = base.merge(overrides) do |_key, original, replacement|
+    if original.is_a?(Hash) && replacement.is_a?(Hash)
+      deep_merge_config(original, replacement)
+    else
+      replacement
+    end
+  end
+  # Keep explicit settings first, in the user's order, without duplicate keys.
+  (overrides.keys + base.keys).uniq.to_h { |key| [key, merged.fetch(key)] }
+end
+
+def apply_config_overrides(output, overrides)
+  return output if overrides.nil?
+
+  unless overrides.is_a?(Hash)
+    warn 'config_overrides must be a mapping'
+    exit 1
+  end
+  return output if overrides.empty?
+
+  config = Psych.safe_load(output, permitted_classes: [], aliases: true)
+  Psych.dump(deep_merge_config(config, overrides))
+end
+
 class TemplateContext
   PROVIDER_REQUIRED_KEYS = %w[name url].freeze
   LOCAL_PROXY_REQUIRED_KEYS = %w[name type server port].freeze
@@ -105,7 +135,37 @@ class TemplateContext
   CUSTOM_RULE_PROVIDER_TYPES = %w[http file].freeze
   CUSTOM_RULE_PROVIDER_BEHAVIORS = %w[domain ipcidr classical].freeze
   CUSTOM_RULE_PROVIDER_FORMATS = %w[yaml text mrs].freeze
-  BUILTIN_RULE_PROVIDER_NAMES = %w[adblock_mihomo].freeze
+  VALID_GROUP_MODES = %w[simple detailed].freeze
+  DEFAULT_EXTERNAL_UI = './Yacd-meta-gh-pages/'
+  DEFAULT_EXTERNAL_UI_URL = 'https://github.com/MetaCubeX/yacd/archive/gh-pages.zip'
+  # Single catalog for provider rendering and custom-name collision validation.
+  BUILTIN_DOMAIN_RULE_SOURCES = {
+    'ads' => 'category-ads-all', 'private' => 'private', 'cn' => 'cn',
+    'non_cn' => 'geolocation-!cn', 'tracker' => 'tracker',
+    'openai_domain' => 'openai', 'claude_domain' => 'anthropic',
+    'gemini_domain' => 'google-gemini', 'copilot_domain' => 'github-copilot',
+    'ai_domain' => 'category-ai-!cn',
+    'steam_domain' => 'steam', 'epic_domain' => 'epicgames',
+    'blizzard_domain' => 'blizzard', 'ps_domain' => 'playstation',
+    'xbox_domain' => 'xbox', 'nintendo_domain' => 'nintendo', 'games_domain' => 'category-games',
+    'youtube_domain' => 'youtube', 'netflix_domain' => 'netflix', 'disney_domain' => 'disney',
+    'prime_domain' => 'primevideo', 'hbo_domain' => 'hbo', 'twitch_domain' => 'twitch',
+    'spotify_domain' => 'spotify', 'bilibili_domain' => 'bilibili',
+    'biliintl_domain' => 'biliintl', 'bahamut_domain' => 'bahamut',
+    'telegram_domain' => 'telegram', 'discord_domain' => 'discord',
+    'whatsapp_domain' => 'whatsapp', 'twitter_domain' => 'twitter',
+    'facebook_domain' => 'facebook', 'instagram_domain' => 'instagram', 'reddit_domain' => 'reddit',
+    'github_domain' => 'github', 'gitlab_domain' => 'gitlab', 'docker_domain' => 'docker',
+    'google_domain' => 'google', 'google_cn_domain' => 'google-cn',
+    'apple_domain' => 'apple', 'apple_cn_domain' => 'apple-cn',
+    'microsoft_domain' => 'microsoft', 'onedrive_domain' => 'onedrive', 'ehentai_domain' => 'ehentai'
+  }.freeze
+  BUILTIN_IP_RULE_SOURCES = {
+    'private_ip' => 'private', 'google_ip' => 'google', 'netflix_ip' => 'netflix',
+    'telegram_ip' => 'telegram', 'twitter_ip' => 'twitter', 'cn_ip' => 'cn'
+  }.freeze
+  BUILTIN_RULE_PROVIDER_NAMES = (BUILTIN_DOMAIN_RULE_SOURCES.keys + BUILTIN_IP_RULE_SOURCES.keys +
+                                 ['adblock_mihomo']).freeze
   DEFAULT_URL_TEST = {
     'url' => 'https://www.gstatic.com/generate_204',
     'interval' => 300,
@@ -113,15 +173,18 @@ class TemplateContext
     'lazy' => true
   }.freeze
 
-  attr_reader :proxy_providers, :local_proxies, :local_proxy_groups, :local_rules, :fake_ip_filter,
-              :custom_rule_providers, :url_test
+  attr_reader :proxy_providers, :local_proxies, :local_proxy_groups, :local_rules, :proxy_rules,
+              :direct_rules, :group_rules, :fake_ip_filter, :custom_rule_providers, :url_test
 
   def initialize(values)
     @values = values.transform_keys(&:to_s)
     @proxy_providers = normalize_hash_array(@values['proxy_providers'], 'proxy_providers')
     @local_proxies = normalize_hash_array(@values['local_proxies'], 'local_proxies')
     @local_proxy_groups = normalize_hash_array(@values['local_proxy_groups'], 'local_proxy_groups')
-    @local_rules = Array(@values['local_rules']).map(&:to_s)
+    @local_rules = normalize_string_array(@values['local_rules'], 'local_rules')
+    @proxy_rules = normalize_string_array(@values['proxy_rules'], 'proxy_rules')
+    @direct_rules = normalize_string_array(@values['direct_rules'], 'direct_rules')
+    @group_rules = normalize_rule_groups(@values['group_rules'])
     @fake_ip_filter = normalize_string_array(optional_value('fake_ip_filter', 'fake-ip-filter'), 'fake_ip_filter')
     @custom_rule_providers = normalize_hash_array(@values['custom_rule_providers'], 'custom_rule_providers')
     configured_url_test = @values['url_test']
@@ -130,11 +193,41 @@ class TemplateContext
       exit 1
     end
     @url_test = DEFAULT_URL_TEST.merge((configured_url_test || {}).transform_keys(&:to_s))
+    validate_group_mode!
     validate!
   end
 
   def get_binding
     binding
+  end
+
+  def group_mode
+    (@values['group_mode'] || @values['group-mode'] || 'simple').to_s
+  end
+
+  def fake_ip_filter_mode
+    mode = @values.fetch('fake_ip_filter_mode', 'basic')
+    unless %w[basic compat].include?(mode)
+      warn 'fake_ip_filter_mode must be basic or compat'
+      exit 1
+    end
+    mode
+  end
+
+  def external_ui
+    optional_value('external_ui', 'external-ui') || DEFAULT_EXTERNAL_UI
+  end
+
+  def external_ui_url
+    optional_value('external_ui_url', 'external-ui-url') || DEFAULT_EXTERNAL_UI_URL
+  end
+
+  def wireguard
+    @wireguard ||= WireGuardConfig.new(@values['wireguard'],
+                                       reserved_names: local_proxy_names + local_proxy_group_names)
+  rescue ArgumentError => e
+    warn e.message
+    exit 1
   end
 
   def provider_names
@@ -162,13 +255,34 @@ class TemplateContext
   end
 
   def provider_body(provider)
-    provider.reject { |key, _| %w[name skip_defaults].include?(key) }
-            .merge('path' => provider['path'] || "./proxy_providers/#{provider.fetch('name')}.yaml")
+    body = provider.reject { |key, _| %w[name skip_defaults prefix].include?(key) }
+    body['path'] ||= "./proxy_providers/#{provider.fetch('name')}.yaml"
+    body['proxy'] ||= 'DIRECT'
+
+    explicit_override = body['override']
+    body['override'] = if explicit_override.is_a?(Hash)
+                         explicit_override.dup
+                       else
+                         {}
+                       end
+    prefix = provider['prefix']
+    prefix = provider.fetch('name') if blank_value?(prefix)
+    body['override']['additional-prefix'] ||= "#{prefix} | "
+    body
   end
 
   def yaml_scalar(value)
     dumped = Psych.dump(value)
     dumped.sub(/\A---\s*\n?/, '').sub(/\n\.\.\.\s*\z/, '').strip
+  end
+
+  def rules_for_group(name)
+    Array(group_rules[name.to_s])
+  end
+
+  def rule_for_policy(rule, policy)
+    fields = rule.to_s.split(',')
+    fields.length >= 3 ? (fields[0..-2] + [policy.to_s] + fields[3..]).compact.join(',') : "#{rule},#{policy}"
   end
 
   def custom_rule_provider_body(provider)
@@ -179,6 +293,7 @@ class TemplateContext
 
     body['interval'] ||= 86_400
     body['path'] ||= "./rule_providers/#{provider.fetch('name')}.#{rule_provider_extension(provider)}"
+    body['proxy'] ||= 'DIRECT'
     body
   end
 
@@ -269,6 +384,17 @@ class TemplateContext
     end
   end
 
+  def normalize_rule_groups(value)
+    unless value.nil? || value.is_a?(Hash)
+      warn 'group_rules must be a mapping'
+      exit 1
+    end
+
+    (value || {}).each_with_object({}) do |(group, rules), normalized|
+      normalized[group.to_s] = normalize_string_array(rules, "group_rules.#{group}")
+    end
+  end
+
   def normalize_string_array(value, key)
     case value
     when nil
@@ -286,6 +412,13 @@ class TemplateContext
       warn "#{key} must be an array"
       exit 1
     end
+  end
+
+  def validate_group_mode!
+    return if VALID_GROUP_MODES.include?(group_mode)
+
+    warn "Invalid group_mode: must be one of #{VALID_GROUP_MODES.join(', ')}"
+    exit 1
   end
 
   def validate!
@@ -494,6 +627,7 @@ template = File.read(options[:template])
 context = TemplateContext.new(values)
 output = ERB.new(template, trim_mode: '-').result(context.get_binding)
 output = append_fake_ip_filter(output, context.fake_ip_filter)
+output = apply_config_overrides(output, values['config_overrides'])
 
 File.write(options[:output], output)
 warn "Using default port=#{applied_defaults['port']}" if applied_defaults.key?('port')

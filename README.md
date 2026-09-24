@@ -8,176 +8,390 @@
 ruby generate_mihomo_config.rb --values config-values.yaml --output config.yaml
 ```
 
-也可以直接参考仓库里的示例：
+也可以从示例开始：
 
 ```bash
 cp config-values.example.yaml config-values.yaml
 ruby generate_mihomo_config.rb -v config-values.yaml
 ```
 
-默认会生成 `config.yaml`。如果 `port`、`web_port`、`tun_device`、`dns_split_cn_foreign`、`web_secret` 没写，脚本会自动补默认值。
+## 简单 Web 前端
 
-## values 结构
+项目提供一个本地 Ruby Web 前端，用于编辑 `values.yaml` 并生成、下载 `config.yaml`：
 
-```yaml
-proxy_providers: []
-
-local_proxies: []
-# 可选：将上面的 [] 替换为手写节点列表
-# local_proxies:
-#   - name: local_ss
-#     type: ss
-#     server: "127.0.0.1"
-#     port: 8388
-#     cipher: aes-128-gcm
-#     password: "change-me"
-
-# 地区自动测速/切换参数；所有字段都可覆盖
-url_test:
-  url: "https://www.gstatic.com/generate_204"
-  interval: 300
-  tolerance: 50
-  lazy: true
-
-local_proxy_groups: []
-  # - name: custom_group
-  #   type: select
-  #   proxies:
-  #     - DIRECT
-  #     - hk
-  #     - jp
-
-custom_rule_providers: []
-  # - name: mx_emby
-  #   behavior: classical
-  #   format: text
-  #   path: ./rules/mx_emby.list
-  #   policy: mx_emby
-  # - name: private_ai
-  #   behavior: classical
-  #   format: yaml
-  #   url: "https://example.com/private-ai.yaml"
-  #   path: ./rule_providers/private_ai.yaml
-  #   interval: 86400
-  #   policy: openai
-  #   rule_options:
-  #     - no-resolve
-
-local_rules:
-  - DOMAIN-SUFFIX,example.com,custom_group
-
-# 是否按国内外分流 DNS
-# false: 默认值，不区分国内外，不启用 fallback
-# true: 启用 nameserver-policy + fallback + fallback-filter
-dns_split_cn_foreign: false
-
-# 额外追加到 dns.fake-ip-filter 的域名
-fake_ip_filter:
-  - "+.example.com"
-  - "stun.example.net"
+```bash
+ruby web_server.rb
+# 浏览器打开 http://127.0.0.1:4567
 ```
 
-字段说明：
+页面只在内存临时目录中调用生成器，不会覆盖仓库中的 `config-values.yaml` 或其他配置文件。可通过环境变量修改监听地址和端口：
 
-- `proxy_providers`: 可选的远程订阅列表；每个条目都需要 `name` 和 `url`
-- `local_proxies`: 本地静态节点列表，可在没有远程订阅时独立使用
-- `url_test`: 地区自动测速组和全局 `auto_select` 的参数；默认每 300 秒测速，地区手动组会优先包含对应的 `<region>_auto`
-- `local_proxy_groups`: 额外自定义策略组，直接按 Mihomo `proxy-groups` 项的结构填写
-- `custom_rule_providers`: 额外自定义规则集；支持本地 `path` 文件和远程 `url`，并自动生成对应的 `RULE-SET`
-- `local_rules`: 额外自定义规则，按写入顺序插入到规则最前面
-- `fake_ip_filter`: 额外追加到 `dns.fake-ip-filter` 的域名列表；不会覆盖模板内置默认项
-- `dns_split_cn_foreign`: 是否按国内外分流 DNS；默认 `false`
+```bash
+HOST=127.0.0.1 PORT=4567 ruby web_server.rb
+```
 
-### 节点来源模式
+前端文件位于 `web/index.html`，支持浏览器本地保存当前编辑内容、生成配置和下载结果。
 
-1. **仅远程订阅**：所有基于 provider 的策略组，包括地区组、`all_nodes` 和 `auto_select`，继续使用订阅节点。
-2. **仅手写节点**：手写节点只直接属于 `my_proxy`；其他节点策略组通过 `my_proxy` 使用这些节点。
-3. **远程订阅和手写节点并存**：`my_proxy` 会混入内置业务组、地区组、`all_nodes` 和 `auto_select`。
-4. **两者均为空**：`my_proxy` 回退到 `DIRECT`；现有的 `REJECT`/广告拦截规则仍然生效，生成的配置无需订阅或节点也可正常启动。
+### REST API
 
-模板已移除顶层的 `global-client-fingerprint`。上面的 Shadowsocks（`type: ss`）示例不需要 `client-fingerprint`。仅当 Mihomo 文档明确所选协议支持该字段时才使用：手写本地节点应将其放在对应的 `local_proxies` 节点上；订阅节点则必须由订阅/provider 内容提供，因为生成器不会改写 provider 节点。
+Web 服务启动后还提供版本化 REST API：
 
-## 当前内置代理组
+```bash
+# 健康检查
+curl http://127.0.0.1:4567/api/v1/health
 
-生成器目前会创建以下内置代理组，名称可直接用于 `local_proxy_groups[].proxies`、`custom_rule_providers[].policy` 和 `local_rules`：
+# 创建配置，values 可以是 JSON 对象或完整 YAML 字符串
+curl -X POST http://127.0.0.1:4567/api/v1/configs \
+  -H 'Content-Type: application/json' \
+  -d '{"values":{"proxy_providers":[],"local_proxies":[],"local_rules":[]}}'
+```
 
-- 核心出口：`default`、`my_proxy`、`all_nodes`、`auto_select`
-- 地区手动组：`hk`、`jp`、`tw`、`us`、`sg`、`others`
-- 地区自动测速组：`hk_auto`、`jp_auto`、`tw_auto`、`us_auto`、`sg_auto`、`others_auto`
-- 业务策略组：`steam`、`apple`、`google`、`openai`、`telegram`、`twitter`、`ehentai`、`bilibili`、`bilibili_sea`、`bahamut`、`youtube`、`netflix`、`spotify`、`github`、`domestic`、`other`
-- 拦截组：`ad_block`
-- Mihomo 内置动作：`DIRECT`、`REJECT`
+创建接口返回 `id` 和 `download_url`。随后可以查询生成结果，或直接下载：
 
-## 当前规则约定
+```bash
+curl http://127.0.0.1:4567/api/v1/configs/<id>
+curl -OJ http://127.0.0.1:4567/api/v1/configs/<id>/download
+```
 
-- 地区组使用短名称：香港 `hk`、日本 `jp`、台湾 `tw`、美国 `us`、新加坡 `sg`、其他地区 `others`
-- 每个地区都包含对应的 `<region>_auto` 自动测速组，可在保留手动选择的同时自动切换低延迟节点
-- `local_proxy_groups` 排在内置业务组之前；`all_nodes` 和 `auto_select` 随后，所有地区手动/自动组统一放在最末尾
-- 自定义组会自动成为 `default` 和业务策略组的可选项
-- 如果自定义组直接或间接引用某个内置业务组，生成器不会再把该自定义组反向注入被引用组，从而避免 `default → custom → default` 这类循环
-- 自定义策略组不会注入地区/节点聚合组，也不会注入 `local_proxy`、`ad_block`、`auto_select`
-- `custom_rule_providers` 会追加到 `rule-providers:`，并自动在 `rules:` 里生成 `RULE-SET,name,policy`
-- `local_rules` 放在 `rules:` 最上面，优先级最高
-- `fake_ip_filter` 会追加到 `dns.fake-ip-filter:` 末尾，并自动跳过与默认列表重复的项
-- 中国大陆流量优先走 `domestic`
-- `GEOSITE,geolocation-!cn` 默认走 `default`
-- `GEOSITE,geolocation-!cn` 放在接近末尾的位置，只在前面的更具体规则都未命中时生效
-- 最后一条仍然是 `MATCH,other`，作为最终兜底
+旧的 `/api/generate` 接口仍然保留，用于兼容当前页面。
 
-## 直接增加一个分组和规则
+缺少 `port`、`web_port`、`tun_device`、`dns_split_cn_foreign`、`group_mode` 或 `web_secret` 时会自动补默认值。
+
+## 主要配置
 
 ```yaml
+# simple 或 detailed，默认 simple
+group_mode: simple
+
+# 默认使用 Yacd-meta；两项均可覆盖
+external_ui: ./Yacd-meta-gh-pages/
+external_ui_url: https://github.com/MetaCubeX/yacd/archive/gh-pages.zip
+
 proxy_providers:
-  - name: default_provider
-    url: "https://example.com/subscription.yaml"
+  - name: main
+    # 节点名称会变为 Main | 原节点名；省略时使用 name
+    prefix: Main
+    url: https://example.com/subscription.yaml
 
 local_proxies: []
+local_proxy_groups: []
+local_rules: []
+```
 
-local_proxy_groups:
-  - name: custom_group
-    type: select
-    proxies:
-      - DIRECT
-      - hk
-      - hk_auto
-      - jp
-      - jp_auto
-      - tw
-      - tw_auto
-      - us
-      - us_auto
-      - sg
-      - sg_auto
-      - others
-      - others_auto
+`external_ui` 是 Mihomo 面板目录，`external_ui_url` 是 Mihomo 自动下载面板的压缩包地址。默认面板为 `Yacd-meta-gh-pages`，用户可以替换为其他兼容 Mihomo API 的面板。
 
-local_rules:
-  - DOMAIN-SUFFIX,example.com,custom_group
+订阅的 `prefix` 会转换为 Mihomo 的 `override.additional-prefix`。订阅下载默认使用 `DIRECT`；需要通过代理更新时，可以在对应 provider 中显式设置 `proxy`。
 
+## 最终配置覆盖
+
+在 values 中使用 `config_overrides`，可覆盖模板输出中的任意 Mihomo 字段，或增加核心支持的实验/插件配置：
+
+```yaml
+config_overrides:
+  ipv6: true
+  dns:
+    ipv6: true
+  experimental:
+    dialer-ip4p-convert: true
+```
+
+只设置 `dns.ipv6` 不会丢失原来的 `nameserver`、`fake-ip-filter` 等其他 DNS 项。
+此入口在模板渲染、`fake_ip_filter` 追加完成后执行，优先级最高。
+生成文件把 `config_overrides` 中的配置块按你填写的顺序放在最前面，块内也优先显示你填写的字段，
+其余默认字段随后保留。同一个配置键只输出一次；显示顺序本身不会改变 Mihomo 的匹配优先级。
+
+- 配置块（mapping）递归合并；未提及的字段保留。
+- 列表整体替换，不按名称合并或自动追加。例如覆盖 `rules`、`proxies`、`proxy-groups` 时需给出完整列表。
+- 标量直接替换，`false`、`0`、空字符串等不会被当成未配置。
+- `null` 写成 YAML 空值，不表示删除字段；`{}` 是空合并，不会清空已有配置块。
+- 使用最终 Mihomo 字段名，例如 `mixed-port`、`external-controller`，不是生成器输入名 `port`、`web_port`。
+- 未设置或写成 `{}` 时，输出格式保持不变；非空覆盖会重新序列化 YAML，不保留模板注释和原有排版。
+- 自定义字段仅透传，不安装插件、不保证当前核心识别；覆盖造成的无效策略引用等需自行校验。
+
+节点级字段（例如 WireGuard 的 `ip-version`、密钥、`allowed-ips`）继续写在 `local_proxies` 节点内，原样传递。
+只在 values 顶层填写 `ipv6`、`dns`、`experimental` 不会自动覆盖模板，必须放到 `config_overrides` 内。
+Web 的“编辑配置文件”模式、REST API 的 `values` 对象或 YAML 字符串也支持这个入口；表单模式暂未单独提供编辑控件。
+
+## 精简 Fake-IP 例外
+
+`dns.fake-ip-filter` 是 DNS 兼容性例外：命中的域名返回真实 IP，而不是 Fake-IP。
+它不是直连列表，最终走代理还是直连仍由 `rules` 决定。
+在 `fake-ip` 模式下建议保留常用例外，但不需要把所有音乐、游戏、视频服务都放进默认列表。
+
+```yaml
+# 默认 basic：18 条常用内网/本机、校时、STUN 和网络检测例外。
+# compat：恢复此前的 89 条完整历史兼容列表。
+fake_ip_filter_mode: basic
+
+# 按需追加，自动去除重复项；两种模式都支持。
+fake_ip_filter:
+  - music.163.com
+  - +.my-device.test
+```
+
+这是默认 DNS 行为的调整，不只是折叠显示：精简后，未列出的服务会正常使用 Fake-IP。
+若特定音乐/游戏/设备出现兼容问题，可追加其域名，或设置 `fake_ip_filter_mode: compat`。
+精简列表不保证覆盖所有设备、校时服务或游戏的需求；切换前后应结合自己的应用验证。
+
+如要完全自定义列表，仍可使用最高优先级的覆盖入口：
+
+```yaml
+config_overrides:
+  dns:
+    fake-ip-filter:
+      - '*.lan'
+      - '*.local'
+      - +.my-device.test
+```
+
+该列表会替换所选模式的默认列表及 `fake_ip_filter` 追加项。
+写成 `fake-ip-filter: []` 可清空生成配置中的此列表，但不推荐在未验证兼容性的情况下直接清空。
+
+## WireGuard 内网快速配置
+
+在 values 中添加 `wireguard` 列表，即可自动生成节点、独立分组和内网分流规则。
+完整示例见 [`config-values-wireguard.example.yaml`](config-values-wireguard.example.yaml)。
+每个条目对应单个 peer；多 peer 高级配置仍放在 `local_proxies` 中手动配置。
+
+```yaml
+wireguard:
+  - name: office
+    server: wg.example.com
+    port: 51820
+    ip: 10.7.0.2
+    private-key: REPLACE_WITH_CLIENT_PRIVATE_KEY
+    public-key: REPLACE_WITH_SERVER_PUBLIC_KEY
+    allowed-ips:
+      - 10.7.0.0/24
+      - 192.168.50.0/24
+```
+
+先替换示例中的服务器、隧道地址和密钥；占位密钥会被校验拒绝，不能直接连接。
+`ip` / `ipv6` 是客户端在隧道内的地址，不带 `/24` 等掩码。密钥必须为 Base64 编码的 32 字节值。
+`name` 使用小写英文开头，可包含数字、下划线和连字符。
+
+上例自动生成：
+
+- 节点 `wg_office_node`（默认 `udp: true`）；
+- 独立 `select` 组 `wg_office`，选项为 `wg_office_node` 和 `REJECT`；
+- `IP-CIDR,10.7.0.0/24,wg_office,no-resolve`；
+- `IP-CIDR,192.168.50.0/24,wg_office,no-resolve`。
+
+**默认规则位置**为手写规则之后、默认 SSH/22 端口直连及私有域名/IP 直连之前，
+因此访问上述内网（包括 SSH）不会先被默认 `DIRECT` 规则匹配。
+`local_rules` / `proxy_rules` / `direct_rules` / `group_rules` 仍然优先，宽泛的手写规则可能覆盖 WG 自动规则。
+WG 节点和分组不会自动加入 `my_proxy`、`proxy`、地区组或其他普通出口组；隧道失败不自动回落直连。
+可在面板将 `wg_office` 切到 `REJECT` 来拒绝访问这些目标。
+
+### 收窄网段、追加域名及多个隧道
+
+```yaml
+wireguard:
+  - name: office
+    # ...同上填写 server / port / ip / 密钥...
+    allowed-ips: [10.7.0.0/24, 192.168.50.0/24]
+    routes: [192.168.50.0/24]
+    domains: [office.internal]
+```
+
+- 不写 `routes` 时，按 `allowed-ips` 自动生成 IP 规则；显式填写时，只为 `routes` 生成 IP 规则。
+- `routes` 必须包含在 `allowed-ips` 中；支持 IPv4/IPv6 CIDR，IPv6 自动生成 `IP-CIDR6`。
+- `domains` 为裸域名，自动生成 `DOMAIN-SUFFIX`，匹配自身及子域名；不接受 URL、通配符或完整规则文本。
+- `routes: []` 配合非空 `domains` 可仅按域名分流。内网域名需要可用的 DNS；此功能不自动配置内网 DNS。
+- 若 `allowed-ips` 包含 `0.0.0.0/0` 或 `::/0`，必须显式提供较窄的 `routes`，或用 `routes: []` 配合域名。
+  内网快速模式拒绝生成 `/0` 分流，以免意外接管全局流量。
+- 可以添加多个命名不同的条目，例如 `office`、`home`。规则按填写顺序生成，重叠网段/域名先匹配前面的条目，建议避免重叠。
+- `pre-shared-key`、`mtu`、`persistent-keepalive`、`ip-version`、`remote-dns-resolve`、`dns` 等节点参数原样透传。
+  IPv6 开关和 IP4P 等实验功能仍通过 `config_overrides` 配置，不自动启用；是否可用取决于核心及网络环境。
+- `config_overrides` 仍具有最终优先级；整体替换 `proxies`、`proxy-groups` 或 `rules` 会替换自动生成的对应列表。
+
+```bash
+# 先复制示例并填写自己的配置，不要将真实密钥提交到仓库。
+cp config-values-wireguard.example.yaml config-values-wg.yaml
+ruby generate_mihomo_config.rb --values config-values-wg.yaml --output config-wg.yaml
+```
+
+CLI、Web 的完整 YAML 编辑模式和 REST API 的 `values` 输入都使用此入口；表单模式暂未提供 WG 专用控件。
+生成器只生成配置，不负责建立隧道、修改系统路由或验证服务端转发能力。
+字段参考：[Mihomo WireGuard 文档](https://wiki.metacubex.one/config/proxies/wg/)。
+
+## 代理组模式
+
+### simple
+
+只使用简单分类组：
+
+```text
+proxy → region / all_nodes → node
+ai → proxy
+game → proxy
+media → proxy
+chat → proxy
+dev → proxy
+cloud → proxy
+download → proxy
+adult → proxy
+china → DIRECT
+other → final
+```
+
+### detailed
+
+详细服务组默认引用对应的简单分类组：
+
+```text
+openai → ai → proxy → region → node
+claude → ai → proxy → ...
+steam → game → proxy → ...
+netflix → media → proxy → ...
+github → dev → proxy → ...
+```
+
+详细组只是增加控制粒度，不重复维护节点列表。用户可以在详细组中直接选择地区或 `DIRECT` 覆盖父级默认选择。
+
+详细组包括：
+
+- AI：`openai`、`claude`、`gemini`、`copilot`
+- Game：`steam`、`epic`、`blizzard`、`ps`、`xbox`、`nintendo`
+- Media：`youtube`、`netflix`、`disney`、`prime`、`hbo`、`twitch`、`spotify`
+- Chat：`telegram`、`discord`、`whatsapp`、`x`
+- Dev：`github`、`gitlab`、`docker`
+- Cloud：`google`、`apple`、`microsoft`、`onedrive`
+
+## 地区组
+
+所有地区组都是可手动选择的 `select` 组，并以内置隐藏的 `url-test` 子组作为默认项：
+
+```text
+hk
+jp
+tw
+sg
+us
+kr
+eu
+others
+```
+
+地区组显示为 `jp`、`hk` 等名称；`jp_auto` 等自动测速子组默认隐藏，不影响手动选择地区组。手动选择地区组后可以在其中切换自动测速结果或 `my_proxy`。
+
+默认每 300 秒重新测速；当新节点比当前节点快超过 `tolerance`（默认 50ms）时切换。`lazy: true` 表示只有该组真正被使用时才开始测速。
+
+`eu` 覆盖英国、德国、法国、荷兰、意大利、西班牙、瑞典、瑞士、奥地利、波兰、俄罗斯等常见欧洲节点，并排除已单独处理的亚洲、美国和中国节点。
+
+## 规则来源
+
+默认提供 **51 个独立更新的规则提供者**，不是把少量手写域名当作全部覆盖。
+服务规则主要来自 [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat)，广告另保留旧版的
+[217heidai/adblockfilters](https://github.com/217heidai/adblockfilters)。
+
+| 类别 | 内置 provider | 说明 |
+| --- | --- | --- |
+| 基础域名 | `ads`、`private`、`cn`、`non_cn`、`tracker` | 保留原有入口 |
+| AI | `openai_domain`、`claude_domain`、`gemini_domain`、`copilot_domain`、`ai_domain` | 专用集优先；综合集还覆盖 Cursor、Perplexity 等 |
+| 游戏 | `steam_domain`、`epic_domain`、`blizzard_domain`、`ps_domain`、`xbox_domain`、`nintendo_domain`、`games_domain` | 平台集 + 游戏综合集 |
+| 媒体 | `youtube_domain`、`netflix_domain`、`disney_domain`、`prime_domain`、`hbo_domain`、`twitch_domain`、`spotify_domain`、`bilibili_domain`、`biliintl_domain`、`bahamut_domain` | 保留国内/海外媒体的匹配覆盖 |
+| 通信 | `telegram_domain`、`discord_domain`、`whatsapp_domain`、`twitter_domain`、`facebook_domain`、`instagram_domain`、`reddit_domain` | 按 simple/detailed 路由到父组或服务组 |
+| 开发/云服务 | `github_domain`、`gitlab_domain`、`docker_domain`、`google_domain`、`google_cn_domain`、`apple_domain`、`apple_cn_domain`、`microsoft_domain`、`onedrive_domain` | OneDrive 先于 Microsoft；AI 先于 Google/GitHub |
+| 成人内容 | `ehentai_domain` | 路由到 `adult` |
+| IP | `private_ip`、`google_ip`、`netflix_ip`、`telegram_ip`、`twitter_ip`、`cn_ip` | `behavior: ipcidr`，恢复旧版服务 IP 覆盖 |
+| 广告聚合 | `adblock_mihomo` | 217heidai 同系列 MRS 版，与 `ads` 一起进入 `ad_block` |
+
+MetaCubeX 的域名集使用 `meta/geo/geosite/*.mrs`，IP 集使用 `meta/geo/geoip/*.mrs`，每 24 小时刷新；
+`adblock_mihomo` 使用 `main/rules/adblockmihomo.mrs`，每 8 小时刷新。
+目录及保留名称由生成器的同一份规则目录定义，避免与 `custom_rule_providers` 重名后静默覆盖。
+
+从 GEOSITE 改为独立 MRS 的部分仍来自同一上游，不能只凭 provider 数量声称覆盖增加。
+实际补充包括：恢复 217heidai 广告源、恢复 Google/Netflix/Twitter 的 IP 分流、补充私有 IP，
+以及 Claude/Gemini/Copilot 的完整上游集合与 AI 综合集合。旧 OpenAI CDN/存储域名的显式补充也保留。
+IP 规则使用 `no-resolve`，可匹配已有目标 IP，但不会为了匹配主动解析一个仅有域名的请求。
+
+规则顺序为：
+
+```text
+local_rules → proxy_rules → direct_rules → group_rules
+→ wireguard 自动内网规则
+→ SSH / 端口规则
+→ custom_rule_providers
+→ private / private_ip
+→ adblock_mihomo / ads / tracker
+→ AI、Game、Media、Chat、Dev、Cloud 的域名规则
+→ Google / Netflix / Telegram / Twitter 的 IP 规则
+→ cn / cn_ip
+→ non_cn
+→ MATCH,final
+```
+
+所有内置 HTTP 规则集默认通过 `DIRECT` 下载，消除对尚未可用的代理组的依赖；这不保证网络或上游始终可达。
+`proxy`、地区组和测速组在没有订阅或手写节点时通过 `my_proxy` 回退到 `DIRECT`。
+更新失败时可使用已有的本地 `path` 缓存；首次启动无网络且无缓存时，不能保证远程规则可用。
+广告误拦截时，可用优先级更高的自定义直连规则放行，或将 `ad_block` 切到 `DIRECT`。
+
+### 如何验证规则源
+
+```bash
+# 离线结构回归；安装 mihomo 时也校验生成的 simple/detailed 配置
+ruby -Itest test/generate_mihomo_config_test.rb
+
+# 在线检查：需要 ax、mihomo；会下载所有内置源，不读取你的 values 或私人订阅
+ruby script/check_rule_providers.rb
+```
+
+在线脚本逐一下载 MRS、调用 Mihomo 解码、检查非空内容及代表性域名/IP 样本，打印每个源的记录数与 SHA-256；
+任何失败都会返回非零退出码。临时文件在检查后清理，不改用户配置或运行中的 Mihomo。
+它证明的是“此时来源可用、内容可解析、样本包含”，不是全互联网覆盖率。
+`mihomo -t` 仅用于配置校验，不能代替这些下载检查，也不能代替实际流量的命中日志验证。
+
+旧配置中的 Emby 专用列表、个人源 IP 直连、UDP/443 拦截及个别站点偏好仍应通过下面的自定义入口配置，
+不会自动复制成所有用户的默认规则。
+
+用户自定义规则集同样支持 `url`、`path`、`format`、`behavior`、`interval`、`proxy` 和 `rule_options`：
+
+```yaml
 custom_rule_providers:
-  - name: mx_emby
+  - name: private_ai
     behavior: classical
     format: text
-    path: ./rules/mx_emby.list
-    policy: custom_group
-
-fake_ip_filter:
-  - "+.example.com"
-  - "stun.example.net"
+    url: https://example.com/private-ai.list
+    policy: ai
+    # 默认 DIRECT，也可以写 proxy: proxy
 ```
 
-说明：
+除了优化后的默认规则外，可以用简单列表把自定义规则直接插入指定策略组。列表项通常只写匹配器，生成器会自动追加策略：
 
-- `local_proxy_groups` 里直接写完整策略组，不支持复用模板内部的 anchor，比如 `<<: *pr`
-- 自定义策略组会自动进入全局和业务策略组，无需逐个修改模板；地区及节点聚合组保持不变
-- `custom_rule_providers` 的 `policy` 写命中的策略组名；`url` 和 `path` 二选一即可，`url + path` 则表示远程规则和本地缓存路径同时指定
-- `custom_rule_providers` 的规则文件内容不要再写第三列策略名；例如 `classical + text` 文件里应写 `DOMAIN-SUFFIX,example.com`
-- `custom_rule_providers.rule_options` 会拼到 `RULE-SET` 末尾，适合 `no-resolve` 这类额外参数
-- `local_rules` 的第三列写你上面定义的分组名即可，比如 `custom_group`
-- `fake_ip_filter` 只做追加，不会删掉模板里的默认兼容域名
+```yaml
+proxy_rules:
+  - DOMAIN-SUFFIX,example-proxy.test
 
-## 文件说明
+direct_rules:
+  - DOMAIN-SUFFIX,example-direct.test
 
-- `generate_mihomo_config.rb`: 读取 values 并渲染 ERB 模板
-- `config-template.yaml.erb`: Mihomo 配置模板
-- `config-values.example.yaml`: 最小可用示例
+group_rules:
+  chat:
+    - DOMAIN-SUFFIX,example-telegram.test
+  media:
+    - DOMAIN-SUFFIX,example-media.test
+```
+
+`proxy_rules` 和 `direct_rules` 分别直接路由到 `proxy` 和 `DIRECT`；`group_rules` 的键可以使用任意已存在的内置组，例如 `ai`、`chat`、`media`、`dev`、`cloud`；详细模式下也可以使用 `telegram`、`openai` 等详细组。也支持写完整的 Mihomo 规则项，生成器会替换最后一个策略字段。
+
+`local_rules` 会放在规则最前面，适合临时覆盖模板规则：
+
+```yaml
+local_rules:
+  - DOMAIN-SUFFIX,example.com,ai
+  - IP-CIDR,192.0.2.0/24,DIRECT,no-resolve
+```
+
+## 空订阅行为
+
+- 只有远程订阅：provider 和地区组正常使用订阅节点。
+- 只有手写节点：手写节点进入 `my_proxy`，其他组通过它使用节点。
+- 两者都有：远程和手写节点都可用。
+- 两者都没有：`my_proxy`、`proxy`、地区组、规则兜底均可回退到 `DIRECT`。
+
+## 兼容说明
+
+`default`、`my_proxy`、`all_nodes`、`domestic`、`other` 仍保留作为兼容入口。新配置建议使用 `proxy`、`final`、`china` 等简单名称。
+
+模板已移除 Mihomo 已废弃的顶层 `global-client-fingerprint`。协议相关的 `client-fingerprint` 应放在具体手写节点中，订阅节点则由订阅内容提供。
