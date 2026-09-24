@@ -4,77 +4,199 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Mihomo 配置生成器</title>
   <style>
-    :root { color-scheme: dark; font-family: system-ui, sans-serif; --page: #111827; --text: #e5e7eb; --panel: #1f2937; --field: #030712; --border: #374151; --muted: #9ca3af; }
-    :root.light { color-scheme: light; --page: #f3f4f6; --text: #1f2937; --panel: #ffffff; --field: #ffffff; --border: #d1d5db; --muted: #6b7280; }
-    body { max-width: 1000px; margin: 0 auto; padding: 24px; background: var(--page); color: var(--text); }
-    .titlebar { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-    .theme-toggle { margin: 0; padding: 8px 10px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: 20px; line-height: 1; }
-    section { margin: 18px 0; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
-    #form-editor { border: 0; margin: 0; padding: 0; min-width: 0; }
-    .entry-card { border: 1px solid var(--border); border-radius: 6px; padding: 12px; margin: 12px 0; min-width: 0; }
-    label { display: block; margin: 10px 0; } input, textarea, select { box-sizing: border-box; width: 100%; margin-top: 5px; padding: 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--field); color: var(--text); }
-    .checkbox { display: flex; align-items: center; gap: 8px; } .checkbox input { width: auto; margin: 0; }
-    textarea { min-height: 100px; font: 14px/1.5 ui-monospace, monospace; } #file-values { min-height: 600px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
-    button { margin: 12px 8px 12px 0; padding: 10px 18px; border: 0; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; }
-    button.active { background: #059669; } button:disabled { opacity: .6; cursor: wait; }
-    .hint { color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; } code { overflow-wrap: anywhere; }
-    pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; border-radius: 6px; background: var(--panel); }
-    summary { cursor: pointer; } [data-remove] { background: #9f3030; }
-    a { color: #60a5fa; } :root.light a { color: #1d4ed8; }
+    :root {
+      color-scheme: dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-size: 14px; line-height: 1.6;
+      --background: #09090b; --foreground: #fafafa; --card: #111114;
+      --muted: #1c1c20; --muted-foreground: #a1a1aa; --input: #18181b;
+      --border: #303036; --primary: #fafafa; --primary-foreground: #18181b;
+      --accent: #27272a; --ring: #a1a1aa;
+      --destructive: #fda4af; --destructive-background: #35171f;
+      --shadow: 0 2px 8px #00000014; --radius: 12px;
+    }
+    :root.light {
+      color-scheme: light;
+      --background: #f8f9fb; --foreground: #18181b; --card: #ffffff;
+      --muted: #f4f4f5; --muted-foreground: #62626e; --input: #ffffff;
+      --border: #dedee3; --primary: #18181b; --primary-foreground: #fafafa;
+      --accent: #e9e9ee; --ring: #71717a;
+      --destructive: #be123c; --destructive-background: #fff1f2;
+      --shadow: 0 2px 8px #18181b06;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; background: var(--background); color: var(--foreground); }
+    .app-shell { max-width: 1120px; margin: 0 auto; padding: 36px 28px 28px; }
+    .page-header { padding-bottom: 26px; margin-bottom: 26px; border-bottom: 1px solid var(--border); }
+    .titlebar, .brand { display: flex; align-items: center; gap: 14px; }
+    .titlebar { justify-content: space-between; gap: 20px; }
+    .brand { min-width: 0; }
+    .brand-mark { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 12px; background: var(--foreground); color: var(--background); font: 600 22px ui-monospace, monospace; }
+    h1 { margin: 0; font-size: clamp(21px, 3vw, 28px); font-weight: 650; line-height: 1.35; letter-spacing: -.04em; }
+    h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.02em; }
+    .eyebrow { margin: 0 0 3px; font-size: 10px; font-weight: 600; letter-spacing: .16em; color: var(--muted-foreground); }
+    .intro { margin: 20px 0 8px; }
+    .repository { margin: 0; font-size: 12px; }
+    a { color: var(--foreground); text-underline-offset: 4px; text-decoration-color: var(--border); }
+    a:hover { text-decoration-color: currentColor; }
+    .hint { color: var(--muted-foreground); font-size: 13px; line-height: 1.75; overflow-wrap: anywhere; }
+    code { padding: 2px 5px; border-radius: 4px; background: var(--muted); color: var(--foreground); font: .92em ui-monospace, monospace; overflow-wrap: anywhere; }
+    .mode-switch { display: inline-flex; gap: 4px; padding: 4px; margin-bottom: 26px; border: 1px solid var(--border); border-radius: 9px; background: var(--muted); }
+    button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 8px 16px; border: 1px solid var(--border); border-radius: 7px; background: var(--card); color: var(--foreground); font-size: 13px; font-weight: 500; line-height: 1.5; font-family: inherit; cursor: pointer; transition: background-color .15s, border-color .15s; }
+    button:hover:not(:disabled) { background: var(--accent); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    #generate:disabled { cursor: wait; }
+    button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+    .theme-toggle { flex-shrink: 0; width: 40px; padding: 0; font-size: 17px; filter: grayscale(1); }
+    .mode-switch button { min-height: 34px; border-color: transparent; background: transparent; color: var(--muted-foreground); }
+    .mode-switch button.active { background: var(--card); color: var(--foreground); box-shadow: var(--shadow); border-color: var(--border); }
+    #form-editor { display: grid; grid-template-columns: 156px minmax(0, 1fr); align-items: start; gap: 28px; margin: 0; padding: 0; border: 0; min-width: 0; }
+    .section-nav { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 24px; }
+    .nav-heading { margin: 0 0 10px 12px; color: var(--muted-foreground); font-size: 11px; letter-spacing: .06em; }
+    .section-nav a { display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 8px 12px; border-radius: 7px; text-decoration: none; color: var(--muted-foreground); font-size: 13px; }
+    .section-nav a:hover, .section-nav a:focus-visible { background: var(--muted); color: var(--foreground); }
+    .section-nav span { font: 11px ui-monospace, monospace; }
+    .sections { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+    section { padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow); scroll-margin-top: 24px; }
+    .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+    .section-index { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; background: var(--muted); color: var(--muted-foreground); border: 1px solid var(--border); border-radius: 7px; font: 11px ui-monospace, monospace; }
+    .section-header .hint { margin: 3px 0 0; }
+    section > .hint { margin: 0 0 16px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; }
+    label { display: flex; flex-direction: column; gap: 7px; margin: 16px 0; font-size: 13px; font-weight: 500; min-width: 0; }
+    .grid > label { margin: 0; }
+    input, textarea, select { width: 100%; min-width: 0; min-height: 40px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 6px; background: var(--input); color: var(--foreground); font: inherit; font-weight: 400; scroll-margin-block: 100px; }
+    input::placeholder, textarea::placeholder { color: var(--muted-foreground); opacity: .85; }
+    input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-color: var(--ring); }
+    input:user-invalid, textarea:user-invalid, select:user-invalid { border-color: var(--destructive); }
+    textarea { display: block; min-height: 110px; resize: vertical; font: 12px/1.75 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    #file-values { min-height: 520px; tab-size: 2; }
+    .checkbox { flex-direction: row; align-items: center; gap: 10px; margin: 0; }
+    .checkbox input { width: 16px; height: 16px; min-height: 0; margin: 0; accent-color: var(--primary); }
+    .setting-row { margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--border); }
+    .setting-row .hint { margin: 8px 0 0 26px; font-size: 12px; }
+    .entry-card { margin: 20px 0; padding: 20px; min-width: 0; border: 1px solid var(--border); border-radius: 9px; background: var(--background); }
+    legend { padding: 0 8px; font-size: 12px; font-weight: 600; color: var(--muted-foreground); }
+    #add-wg, #add-rule-provider { width: 100%; border-style: dashed; min-height: 44px; }
+    #add-wg::before, #add-rule-provider::before { content: '+'; font-size: 18px; font-weight: 400; }
+    [data-remove] { color: var(--destructive); background: transparent; }
+    [data-remove]:hover:not(:disabled) { background: var(--destructive-background); border-color: var(--destructive); }
+    .callout { padding: 12px 14px; border: 1px solid var(--border); border-radius: 7px; background: var(--muted); }
+    #group-help { margin-top: 14px; line-height: 1.9; }
+    details { margin: 16px 0; padding: 0 14px; border: 1px solid var(--border); border-radius: 7px; }
+    summary { padding: 12px 0; cursor: pointer; color: var(--muted-foreground); font-size: 12px; }
+    details[open] > summary { color: var(--foreground); }
+    details .hint { margin-top: 0; font-size: 12px; }
+    details ul { padding-left: 18px; }
+    details li + li { margin-top: 8px; }
+    .form-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 24px; padding: 16px 20px; position: sticky; bottom: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow); }
+    .action-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
+    .form-actions .hint { margin: 0; font-size: 12px; }
+    #generate { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+    #generate:hover:not(:disabled) { opacity: .85; }
+    .result-panel { margin-top: 18px; padding: 0 4px; }
+    .result-label { color: var(--muted-foreground); font-size: 11px; }
+    #status { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 ui-monospace, monospace; }
+    .page-footer { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: 11px; }
+    @media (max-width: 760px) {
+      .app-shell { padding: 24px 16px; }
+      #form-editor { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+      .section-nav { position: static; flex-direction: row; flex-wrap: wrap; gap: 4px; }
+      .section-nav a { padding: 7px 10px; gap: 6px; font-size: 12px; min-height: 40px; }
+      .nav-heading { display: none; }
+      section { padding: 20px; }
+      .form-actions { bottom: 8px; padding: 14px; }
+      .form-actions > .hint { display: none; }
+      .action-buttons { width: 100%; }
+      .action-buttons button { flex: 1; }
+    }
+    @media (max-width: 480px) {
+      .grid { grid-template-columns: minmax(0, 1fr); }
+      .brand-mark { display: none; }
+      section { padding: 18px; }
+      .entry-card { padding: 14px; }
+      input, textarea, select { font-size: 16px; }
+      .mode-switch { display: flex; }
+      .mode-switch button { flex: 1; padding: 8px 10px; }
+    }
+    @media (prefers-reduced-motion: reduce) { button { transition: none; } }
   </style>
 </head>
 <body>
-  <div class="titlebar"><h1>Mihomo 配置生成器</h1><button type="button" id="theme-toggle" class="theme-toggle" aria-label="切换主题" title="切换到白天模式">☀️</button></div>
-  <p class="hint">项目仓库：<a href="https://github.com/Nimbly8836/generate_mihomo_config" target="_blank" rel="noopener noreferrer">github.com/Nimbly8836/generate_mihomo_config</a>。更多说明请参考仓库。</p>
-  <p class="hint">直接填写参数，或编辑完整 values.yaml，生成后下载 config.yaml。两种输入模式独立，不会互相转换。</p>
-  <div><button type="button" id="form-mode" class="active">直接填写参数</button><button type="button" id="file-mode">编辑配置文件</button></div>
+  <main class="app-shell">
+  <header class="page-header">
+    <div class="titlebar">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">M</span><div><p class="eyebrow">MIHOMO CONFIG</p><h1>Mihomo 配置生成器</h1></div></div>
+      <button type="button" id="theme-toggle" class="theme-toggle" aria-label="切换主题" title="切换到白天模式">☀️</button>
+    </div>
+    <p class="hint intro">直接填写参数，或编辑完整 <code>values.yaml</code>，生成后下载 <code>config.yaml</code>。两种输入模式独立，不会互相转换。</p>
+    <p class="hint repository">项目仓库：<a href="https://github.com/Nimbly8836/generate_mihomo_config" target="_blank" rel="noopener noreferrer">github.com/Nimbly8836/generate_mihomo_config</a>。更多说明请参考仓库。</p>
+  </header>
+  <div class="mode-switch" role="group" aria-label="配置输入方式"><button type="button" id="form-mode" class="active">直接填写参数</button><button type="button" id="file-mode">编辑配置文件</button></div>
   <form id="form">
-    <fieldset id="form-editor">
-      <section><h2>基础设置</h2><div class="grid">
+    <fieldset id="form-editor" aria-label="配置参数">
+      <nav class="section-nav" aria-label="配置区域导航">
+        <p class="nav-heading">配置导航</p>
+        <a href="#general"><span aria-hidden="true">01</span>基础设置</a>
+        <a href="#subscriptions"><span aria-hidden="true">02</span>节点订阅</a>
+        <a href="#wireguard"><span aria-hidden="true">03</span>WireGuard</a>
+        <a href="#custom-rules"><span aria-hidden="true">04</span>自定义规则</a>
+        <a href="#external-rules"><span aria-hidden="true">05</span>外部规则集</a>
+      </nav>
+      <div class="sections">
+      <section id="general"><header class="section-header"><span class="section-index" aria-hidden="true">01</span><div><h2>基础设置</h2><p class="hint">配置入口端口、分组模式与实验功能。</p></div></header><div class="grid">
         <label>端口<input name="port" type="number" value="7890" min="1" max="65535" required></label>
         <label>Web 端口<input name="web_port" type="number" value="9090" min="1" max="65535" required></label>
         <label>分组模式<select name="group_mode"><option value="simple">simple</option><option value="detailed">detailed</option></select></label>
         <label>Web 密钥<input name="web_secret" placeholder="留空自动生成"></label>
       </div>
-        <label class="checkbox"><input name="ip4p" type="checkbox" aria-describedby="ip4p-hint">启用 IP4P（实验功能）</label>
-        <p id="ip4p-hint" class="hint">仅影响表单模式。需要支持 dialer-ip4p-convert 的 Mihomo 核心；不会自动开启 IPv6 或修改 WG 节点。YAML 模式请使用 config_overrides 配置。</p>
+        <div class="setting-row">
+          <label class="checkbox"><input name="ip4p" type="checkbox" aria-describedby="ip4p-hint">启用 IP4P（实验功能）</label>
+          <p id="ip4p-hint" class="hint">仅影响表单模式。需要支持 dialer-ip4p-convert 的 Mihomo 核心；不会自动开启 IPv6 或修改 WG 节点。YAML 模式请使用 config_overrides 配置。</p>
+        </div>
       </section>
-      <section><h2>订阅</h2><p class="hint">代理节点订阅，不是分流规则集。每行：名称 | URL | 前缀；前缀可省略。</p><textarea name="providers" placeholder="main | https://example.com/sub.yaml | Main"></textarea></section>
-      <section>
-        <h2>WireGuard 内网节点</h2>
-        <p class="hint">点击添加后填写节点参数。每条配置自动生成 wg_名称 分组和内网规则，不加入普通代理出口；手写规则仍优先。移除卡片可取消该节点。密钥不会写入浏览器本地存储，但会包含在下载的配置中。</p>
+      <section id="subscriptions"><header class="section-header"><span class="section-index" aria-hidden="true">02</span><div><h2>节点订阅</h2><p class="hint">添加节点来源，支持多个订阅。</p></div></header><p id="providers-hint" class="hint">每行：名称 | URL | 前缀；前缀可省略。这里填写节点订阅，不是分流规则集。</p><textarea name="providers" aria-label="节点订阅列表" aria-describedby="providers-hint" placeholder="main | https://example.com/sub.yaml | Main"></textarea></section>
+      <section id="wireguard">
+        <header class="section-header"><span class="section-index" aria-hidden="true">03</span><div><h2>WireGuard 内网节点</h2><p class="hint">独立内网通道，不混入普通代理出口。</p></div></header>
+        <details><summary>节点命名、规则优先级与密钥说明</summary><p class="hint">点击添加后填写节点参数。每条配置自动生成 wg_名称 分组和内网规则；手写规则仍优先。移除卡片可取消该节点。密钥不会写入浏览器本地存储，但会包含在下载的配置中。</p></details>
         <div id="wg-entries"></div>
         <button type="button" id="add-wg">添加 WG 节点</button>
       </section>
-      <section><h2>自定义规则</h2>
+      <section id="custom-rules"><header class="section-header"><span class="section-index" aria-hidden="true">04</span><div><h2>自定义规则</h2><p class="hint">将指定域名或网段交给对应分组。</p></div></header>
         <p class="hint">下方填写手写匹配条件，每行一条，例如 DOMAIN-SUFFIX,example.com 或 IP-CIDR,192.168.10.0/24。只写“类型,匹配值”，不要附加目标组、no-resolve 等选项。完整或逻辑规则请在 YAML 模式使用 local_rules。</p>
         <label>直接代理到 proxy<textarea name="proxy_rules" aria-describedby="external-rule-hint" placeholder="DOMAIN-SUFFIX,example.com&#10;DOMAIN,api.example.com"></textarea></label>
-        <p id="external-rule-hint" class="hint">这里不能直接粘贴外部规则 URL。若要把一个外部列表全部交给 proxy，请在下面“外部规则集”中填写 URL，并将目标组设为 proxy。</p>
+        <p id="external-rule-hint" class="hint callout">外部列表 URL 请填到下面的<a href="#external-rules">“外部规则集”</a>，目标组设为 <code>proxy</code>；不要直接粘贴到这里。</p>
         <label>直接连接到 DIRECT<textarea name="direct_rules" placeholder="DOMAIN-SUFFIX,lan.example.com"></textarea></label>
         <label>插入其他内置组<textarea name="group_rules" aria-describedby="group-help" placeholder="chat: DOMAIN-SUFFIX,t.me&#10;media: GEOSITE,youtube&#10;ai: DOMAIN-SUFFIX,example.ai"></textarea></label>
         <p class="hint">每行：组名: 类型,匹配值。simple 模式使用 chat、ai 等父组；telegram、openai 等详细组只在 detailed 模式可用。</p>
-        <p id="group-help" class="hint" aria-live="polite"></p>
+        <p id="group-help" class="hint callout" aria-live="polite"></p>
         <details><summary>隐藏自动测速组与特殊目标</summary><p id="auto-group-help" class="hint"></p><p class="hint">DIRECT、REJECT 是内置动作，也可以作为规则目标。一般优先选择可见的手动分组。</p></details>
       </section>
-      <section>
-        <h2>外部规则集</h2>
-        <p class="hint">适用于 Clash/Mihomo 规则集的直链（如 GitHub raw 地址），不是节点订阅或网页链接。为每个来源填写名称、URL、内容类型、文件格式和目标组，自动生成 rule-providers 及 RULE-SET 规则。默认通过 DIRECT 下载、每 24 小时更新；由 Mihomo 使用配置时下载，本页面不会访问该 URL。</p>
+      <section id="external-rules">
+        <header class="section-header"><span class="section-index" aria-hidden="true">05</span><div><h2>外部规则集</h2><p class="hint">添加规则直链，自动生成 rule-providers 和 RULE-SET。</p></div></header>
+        <p class="hint">填写 Clash/Mihomo 规则集的直链，不是节点订阅或网页地址。由 Mihomo 使用配置时下载，本页面不会访问该 URL。</p>
+        <details><summary>如何选择内容类型、格式和目标组？</summary>
+        <p class="hint">默认通过 DIRECT 下载，每 24 小时更新。</p>
         <ul class="hint">
           <li>domain：纯域名列表；ipcidr：IP 网段列表；classical：带规则类型的列表，例如 DOMAIN-SUFFIX,example.com（不要带目标组）。</li>
           <li>yaml：带 payload 的规则文件；text：逐行文本；mrs：二进制规则集，仅支持 domain / ipcidr。</li>
           <li>例如：custom_media | https://example.com/media.mrs | domain | mrs | media。若希望全部走普通代理，将目标组改为 proxy。</li>
           <li>匹配优先级：手写规则 → WG 内网规则 → 默认 SSH 直连 → 外部规则集 → 默认服务规则。</li>
         </ul>
+        </details>
         <div id="rule-entries"></div>
         <button type="button" id="add-rule-provider">添加外部规则集</button>
         <datalist id="policy-targets"></datalist>
       </section>
+      </div>
     </fieldset>
-    <div id="file-editor" hidden><section><h2>values.yaml</h2><textarea id="file-values" spellcheck="false"></textarea></section></div>
-    <button id="generate" type="submit">生成配置</button><button id="download" type="button" disabled>下载 config.yaml</button>
+    <div id="file-editor" hidden><section><header class="section-header"><div><h2>values.yaml</h2><p class="hint">直接编辑完整配置。内容会保存在当前浏览器，含密钥时请勿使用共享设备。</p></div></header><textarea id="file-values" aria-label="完整 values.yaml 配置" spellcheck="false"></textarea></section></div>
+    <div class="form-actions"><p class="hint">生成后下载配置，再导入 Mihomo 使用。</p><div class="action-buttons"><button id="generate" type="submit">生成配置</button><button id="download" type="button" disabled>下载 config.yaml</button></div></div>
   </form>
-  <pre id="status" role="status" aria-live="polite">就绪</pre>
+  <div class="result-panel"><span class="result-label">生成状态</span><pre id="status" role="status" aria-live="polite">就绪</pre></div>
+  <footer class="page-footer">仅生成配置 · 实际代理连接由 Mihomo 核心处理</footer>
+  </main>
 
   <template id="wg-template">
     <fieldset class="entry-card" data-entry>
