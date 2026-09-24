@@ -10,6 +10,16 @@ const { spawnSync } = require("node:child_process");
 const html = fs.readFileSync(path.join(__dirname, "../web/index.html"), "utf8");
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 
+test("IP4P lives only in the collapsed advanced settings", () => {
+  const basic = html.match(/<section id="general"[\s\S]*?<\/section>/)[0];
+  const advanced = html.slice(html.indexOf('<details id="advanced-settings"'), html.indexOf('<div id="file-editor"'));
+  assert.doesNotMatch(basic, /name="ip4p"|实验功能/);
+  assert.match(advanced, /<section id="experimental">/);
+  assert.match(advanced, /name="ip4p"/);
+  assert.doesNotMatch(advanced.match(/<details[^>]*>/)[0], /\bopen(?:\s|=|>)/);
+  assert.equal((html.match(/name="ip4p"/g) || []).length, 1);
+});
+
 test("download is only offered in the result dialog with a concise label", () => {
   const form = html.match(/<form id="form"[\s\S]*?<\/form>/)[0];
   const dialog = html.match(/<dialog id="result-dialog"[\s\S]*?<\/dialog>/)[0];
