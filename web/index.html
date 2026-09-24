@@ -11,6 +11,7 @@
     .theme-toggle { margin: 0; padding: 8px 10px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: 20px; line-height: 1; }
     section { margin: 18px 0; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
     label { display: block; margin: 10px 0; } input, textarea, select { box-sizing: border-box; width: 100%; margin-top: 5px; padding: 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--field); color: var(--text); }
+    .checkbox { display: flex; align-items: center; gap: 8px; } .checkbox input { width: auto; margin: 0; }
     textarea { min-height: 100px; font: 14px/1.5 ui-monospace, monospace; } #file-values { min-height: 600px; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
     button { margin: 12px 8px 12px 0; padding: 10px 18px; border: 0; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; }
@@ -26,7 +27,10 @@
       <section><h2>基础设置</h2><div class="grid">
         <label>端口<input name="port" type="number" value="7890"></label><label>Web 端口<input name="web_port" type="number" value="9090"></label>
         <label>分组模式<select name="group_mode"><option value="simple">simple</option><option value="detailed">detailed</option></select></label><label>Web 密钥<input name="web_secret" placeholder="留空自动生成"></label>
-      </div></section>
+      </div>
+        <label class="checkbox"><input name="ip4p" type="checkbox" aria-describedby="ip4p-hint">启用 IP4P（实验功能）</label>
+        <p id="ip4p-hint" class="hint">仅影响表单模式。需要支持 dialer-ip4p-convert 的 Mihomo 核心；不会自动开启 IPv6 或修改 WG 节点。YAML 模式请使用 config_overrides 配置。</p>
+      </section>
       <section><h2>订阅</h2><p class="hint">每行格式：名称 | URL | 前缀；前缀可省略。</p><textarea name="providers" placeholder="main | https://example.com/sub.yaml | Main"></textarea></section>
       <section><h2>自定义规则</h2>
         <label>直接代理到 proxy<textarea name="proxy_rules" placeholder="DOMAIN-SUFFIX,example.com"></textarea></label>
@@ -48,7 +52,7 @@
     fileValues.value = localStorage.getItem('mihomo-values') || 'proxy_providers: []\nlocal_proxies: []\nlocal_rules: []\nproxy_rules: []\ndirect_rules: []\ngroup_rules: {}\n';
     function setMode(next) { mode = next; localStorage.setItem('mihomo-mode', mode); const file = mode === 'file'; formEditor.hidden = file; fileEditor.hidden = !file; formMode.classList.toggle('active', !file); fileMode.classList.toggle('active', file); }
     formMode.onclick = () => setMode('form'); fileMode.onclick = () => setMode('file'); setMode(mode);
-    function valuesFromForm() { const data = new FormData(form), values = {port: Number(data.get('port')), web_port: Number(data.get('web_port')), group_mode: data.get('group_mode'), proxy_providers: [], local_proxies: [], local_rules: [], proxy_rules: lines(data.get('proxy_rules')), direct_rules: lines(data.get('direct_rules')), group_rules: {}}; if (data.get('web_secret').trim()) values.web_secret = data.get('web_secret').trim(); lines(data.get('providers')).forEach(line => { const [name, url, prefix] = line.split('|').map(x => x.trim()); if (name && url) { const provider = {name, url}; if (prefix) provider.prefix = prefix; values.proxy_providers.push(provider); } }); lines(data.get('group_rules')).forEach(line => { const split = line.indexOf(':'); if (split > 0) { const group = line.slice(0, split).trim(), rule = line.slice(split + 1).trim(); if (rule) (values.group_rules[group] ||= []).push(rule); } }); return values; }
+    function valuesFromForm() { const data = new FormData(form), values = {port: Number(data.get('port')), web_port: Number(data.get('web_port')), group_mode: data.get('group_mode'), proxy_providers: [], local_proxies: [], local_rules: [], proxy_rules: lines(data.get('proxy_rules')), direct_rules: lines(data.get('direct_rules')), group_rules: {}}; if (data.get('ip4p') === 'on') values.config_overrides = {experimental: {'dialer-ip4p-convert': true}}; if (data.get('web_secret').trim()) values.web_secret = data.get('web_secret').trim(); lines(data.get('providers')).forEach(line => { const [name, url, prefix] = line.split('|').map(x => x.trim()); if (name && url) { const provider = {name, url}; if (prefix) provider.prefix = prefix; values.proxy_providers.push(provider); } }); lines(data.get('group_rules')).forEach(line => { const split = line.indexOf(':'); if (split > 0) { const group = line.slice(0, split).trim(), rule = line.slice(split + 1).trim(); if (rule) (values.group_rules[group] ||= []).push(rule); } }); return values; }
     form.onsubmit = async event => { event.preventDefault(); generate.disabled = true; download.disabled = true; status.textContent = '生成中…'; const values = mode === 'file' ? fileValues.value : valuesFromForm(); if (mode === 'file') localStorage.setItem('mihomo-values', values); try { const response = await fetch('/api/generate', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({values})}); const result = await response.json(); if (!response.ok) throw new Error(result.error || '生成失败'); config = result.config; download.disabled = false; status.textContent = '生成成功，可以点击下载 config.yaml。'; } catch (error) { status.textContent = '错误：' + error.message; } finally { generate.disabled = false; } };
     download.onclick = () => { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([config], {type: 'application/yaml'})); link.download = 'config.yaml'; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); };
   </script>

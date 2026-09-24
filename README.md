@@ -24,13 +24,89 @@ ruby web_server.rb
 # 浏览器打开 http://127.0.0.1:4567
 ```
 
-页面只在内存临时目录中调用生成器，不会覆盖仓库中的 `config-values.yaml` 或其他配置文件。可通过环境变量修改监听地址和端口：
+生成过程使用临时目录，不会覆盖仓库中的 `config-values.yaml` 或其他配置文件。可通过环境变量修改监听地址和端口：
 
 ```bash
 HOST=127.0.0.1 PORT=4567 ruby web_server.rb
 ```
 
 前端文件位于 `web/index.html`，支持浏览器本地保存当前编辑内容、生成配置和下载结果。
+
+表单的“基础设置”中提供 **启用 IP4P（实验功能）** 开关，默认不勾选。
+勾选后生成 `experimental.dialer-ip4p-convert: true`，不自动开启 IPv6 或修改 WG 节点；
+需要运行配置的 Mihomo 核心支持这个字段。开关只影响表单模式，YAML 模式仍以编辑内容为准。
+WG 参数目前仍在 YAML 模式通过 `wireguard` 配置。
+
+### Docker / Docker Compose
+
+镜像只运行 Web 生成器及 REST API，不包含或运行 Mihomo，不建立 WG 隧道，也不需要特权模式、TUN 设备或宿主机网络。
+镜像默认监听容器内 `0.0.0.0:4567`，以非 root 用户（UID/GID `10001`）运行。
+
+仓库提供 [`compose.yaml`](compose.yaml)，默认镜像为：
+
+```text
+ghcr.io/nimbly8836/generate_mihomo_config:latest
+```
+
+**首次使用远程镜像前，需要先将 Docker/workflow 文件推送到 GitHub，并等待 Actions 成功发布。**
+若 GHCR 包是私有的，需要先登录，或由维护者将该包的可见性设置为 Public。
+
+```bash
+# 在 compose.yaml 所在目录执行；需要 Docker Compose v2+
+docker compose pull
+docker compose up -d --wait
+
+# 浏览器打开 http://127.0.0.1:4567
+docker compose ps
+docker compose logs -f web
+
+# 更新镜像
+docker compose pull
+docker compose up -d --wait
+
+# 停止
+docker compose down
+```
+
+Compose 默认只发布到宿主机的 `127.0.0.1`，并使用只读根文件系统、64 MiB `/tmp` 临时内存目录、
+禁用额外 Linux capabilities。无需挂载私人配置或源代码。
+可以通过环境变量（或 Compose 同目录的 `.env`）设置：
+
+| 变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `MIHOMO_WEB_IMAGE` | 上述 GHCR 镜像的 `latest` | 切换版本、本地镜像或 fork 的镜像地址 |
+| `WEB_BIND_ADDRESS` | `127.0.0.1` | 宿主机绑定地址 |
+| `WEB_PORT` | `4567` | 宿主机端口；容器内仍为 4567 |
+
+例如 `WEB_PORT=8080 docker compose up -d --wait`，随后访问 `http://127.0.0.1:8080`。
+**当前 Web/API 没有登录鉴权，不要直接暴露到公网。** 如需其他设备访问，应先部署有访问控制和 HTTPS 的反向代理。
+表单里的“Web 密钥”是生成的 Mihomo 配置密钥，不是这个生成器网站的登录密码。
+
+创建结果保存在服务进程内存中，重启后原有下载 URL 失效；请及时下载。
+浏览器 YAML 编辑内容可能保存在该浏览器的 localStorage 中，其中可能包含密钥，不建议在共享浏览器上使用。
+
+#### 本地构建（无需等待 GHCR 发布）
+
+```bash
+docker build -t mihomo-config-web:local .
+MIHOMO_WEB_IMAGE=mihomo-config-web:local docker compose up -d --wait
+```
+
+`.dockerignore` 使用白名单，Dockerfile 也只显式复制运行需要的 5 个源文件；
+不会将私人 values、生成的配置、订阅凭据或 `.git` 打进镜像。运行环境无需 Node.js 或额外应用 gem。
+
+#### GitHub Actions 构建与发布
+
+[`.github/workflows/docker.yml`](.github/workflows/docker.yml) 自动执行：
+
+- PR 到 `main`：运行生成器和表单测试，构建原生镜像，并通过 Compose 测试页面、健康检查、IP4P、WG 生成和下载；不发布镜像。
+- 推送 `main`：测试通过后发布 `latest` 和 `sha-<短提交号>`。
+- 推送 `v*` 标签：发布同名镜像标签（如 `v1.0.0`）及提交号标签。
+- 支持 Actions 页面手动运行；只有 `main` 分支运行会更新 `latest`。
+- 发布 `linux/amd64` 和 `linux/arm64`，使用仓库自带的 `GITHUB_TOKEN` 登录 GHCR，无需 Docker Hub 凭据。
+
+Actions 固定到具体提交 SHA；需允许仓库 Actions 运行及 workflow 的 `packages: write` 权限。
+这套自动化不执行真实订阅下载或 WG 连通性验证，也不等于对 Web 服务做了完整的安全审计。
 
 ### REST API
 

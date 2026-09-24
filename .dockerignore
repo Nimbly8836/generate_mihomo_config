@@ -1,0 +1,11 @@
+# Allowlist: never send private values, output configurations, or Git history.
+**
+!Dockerfile
+!.dockerignore
+!generate_mihomo_config.rb
+!config-template.yaml.erb
+!web_server.rb
+!lib/
+!lib/wireguard_config.rb
+!web/
+!web/index.html
