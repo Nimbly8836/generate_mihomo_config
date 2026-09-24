@@ -10,6 +10,59 @@ const { spawnSync } = require("node:child_process");
 const html = fs.readFileSync(path.join(__dirname, "../web/index.html"), "utf8");
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 
+test("decorative numbering and idle status are absent", () => {
+  assert.doesNotMatch(html, /section-index|result-label|生成状态|>就绪</);
+  const nav = html.match(/<nav class="section-nav"[\s\S]*?<\/nav>/)[0];
+  assert.doesNotMatch(nav, /\b0[1-5]\b/);
+  assert.match(html, /<pre id="status"[^>]*\bhidden\b/);
+});
+
+test("generation progress stays on the button without a success status panel", async () => {
+  const { context, element } = page(false);
+  let finish;
+  context.fetch = () => new Promise(resolve => { finish = resolve; });
+  const submitting = element("#form").onsubmit({ preventDefault() {} });
+  assert.equal(element("#generate").disabled, true);
+  assert.equal(element("#generate").textContent, "生成中…");
+  assert.equal(element("#status").hidden, true);
+  finish({ ok: true, json: async () => ({ config: "test-config" }) });
+  await submitting;
+  assert.equal(element("#generate").disabled, false);
+  assert.equal(element("#generate").textContent, "生成配置");
+  assert.equal(element("#download").disabled, false);
+  assert.equal(element("#status").hidden, true);
+  assert.equal(element("#status").textContent, "");
+});
+
+test("validation errors remain visible and disappear after a successful retry", async () => {
+  const { fields, element } = page(false, { proxy_rules: "https://example.com/rules.txt" });
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.equal(element("#status").hidden, false);
+  assert.match(element("#status").textContent, /外部规则集/);
+  assert.equal(element("#generate").textContent, "生成配置");
+  fields.proxy_rules = "";
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.equal(element("#status").hidden, true);
+  assert.equal(element("#status").textContent, "");
+});
+
+test("server and network errors are visible and restore the generate button", async () => {
+  const failures = [
+    async () => ({ ok: false, json: async () => ({ error: "服务错误" }) }),
+    async () => { throw new Error("网络错误"); },
+  ];
+  for (const fail of failures) {
+    const { context, element } = page(false);
+    context.fetch = fail;
+    await element("#form").onsubmit({ preventDefault() {} });
+    assert.equal(element("#status").hidden, false);
+    assert.match(element("#status").textContent, /错误/);
+    assert.equal(element("#generate").disabled, false);
+    assert.equal(element("#generate").textContent, "生成配置");
+    assert.equal(element("#download").disabled, true);
+  }
+});
+
 test('repository link and documentation hint appear above the form', () => {
   const header = html.slice(html.indexOf('<body>'), html.indexOf('<form'));
   assert.match(header, /href="https:\/\/github\.com\/Nimbly8836\/generate_mihomo_config"/);

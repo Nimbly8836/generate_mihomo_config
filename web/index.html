@@ -56,11 +56,9 @@
     .nav-heading { margin: 0 0 10px 12px; color: var(--muted-foreground); font-size: 11px; letter-spacing: .06em; }
     .section-nav a { display: flex; align-items: center; gap: 12px; min-height: 40px; padding: 8px 12px; border-radius: 7px; text-decoration: none; color: var(--muted-foreground); font-size: 13px; }
     .section-nav a:hover, .section-nav a:focus-visible { background: var(--muted); color: var(--foreground); }
-    .section-nav span { font: 11px ui-monospace, monospace; }
     .sections { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
     section { padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow); scroll-margin-top: 24px; }
     .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
-    .section-index { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; background: var(--muted); color: var(--muted-foreground); border: 1px solid var(--border); border-radius: 7px; font: 11px ui-monospace, monospace; }
     .section-header .hint { margin: 3px 0 0; }
     section > .hint { margin: 0 0 16px; }
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; }
@@ -95,9 +93,7 @@
     .form-actions .hint { margin: 0; font-size: 12px; }
     #generate { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
     #generate:hover:not(:disabled) { opacity: .85; }
-    .result-panel { margin-top: 18px; padding: 0 4px; }
-    .result-label { color: var(--muted-foreground); font-size: 11px; }
-    #status { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 ui-monospace, monospace; }
+    #status { flex-basis: 100%; margin: 0; padding: 12px 14px; border: 1px solid var(--destructive); border-radius: 7px; background: var(--destructive-background); color: var(--destructive); white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 ui-monospace, monospace; }
     .page-footer { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: 11px; }
     @media (max-width: 760px) {
       .app-shell { padding: 24px 16px; }
@@ -138,14 +134,14 @@
     <fieldset id="form-editor" aria-label="配置参数">
       <nav class="section-nav" aria-label="配置区域导航">
         <p class="nav-heading">配置导航</p>
-        <a href="#general"><span aria-hidden="true">01</span>基础设置</a>
-        <a href="#subscriptions"><span aria-hidden="true">02</span>节点订阅</a>
-        <a href="#wireguard"><span aria-hidden="true">03</span>WireGuard</a>
-        <a href="#custom-rules"><span aria-hidden="true">04</span>自定义规则</a>
-        <a href="#external-rules"><span aria-hidden="true">05</span>外部规则集</a>
+        <a href="#general">基础设置</a>
+        <a href="#subscriptions">节点订阅</a>
+        <a href="#wireguard">WireGuard</a>
+        <a href="#custom-rules">自定义规则</a>
+        <a href="#external-rules">外部规则集</a>
       </nav>
       <div class="sections">
-      <section id="general"><header class="section-header"><span class="section-index" aria-hidden="true">01</span><div><h2>基础设置</h2><p class="hint">配置入口端口、分组模式与实验功能。</p></div></header><div class="grid">
+      <section id="general"><header class="section-header"><div><h2>基础设置</h2><p class="hint">配置入口端口、分组模式与实验功能。</p></div></header><div class="grid">
         <label>端口<input name="port" type="number" value="7890" min="1" max="65535" required></label>
         <label>Web 端口<input name="web_port" type="number" value="9090" min="1" max="65535" required></label>
         <label>分组模式<select name="group_mode"><option value="simple">simple</option><option value="detailed">detailed</option></select></label>
@@ -156,14 +152,14 @@
           <p id="ip4p-hint" class="hint">仅影响表单模式。需要支持 dialer-ip4p-convert 的 Mihomo 核心；不会自动开启 IPv6 或修改 WG 节点。YAML 模式请使用 config_overrides 配置。</p>
         </div>
       </section>
-      <section id="subscriptions"><header class="section-header"><span class="section-index" aria-hidden="true">02</span><div><h2>节点订阅</h2><p class="hint">添加节点来源，支持多个订阅。</p></div></header><p id="providers-hint" class="hint">每行：名称 | URL | 前缀；前缀可省略。这里填写节点订阅，不是分流规则集。</p><textarea name="providers" aria-label="节点订阅列表" aria-describedby="providers-hint" placeholder="main | https://example.com/sub.yaml | Main"></textarea></section>
+      <section id="subscriptions"><header class="section-header"><div><h2>节点订阅</h2><p class="hint">添加节点来源，支持多个订阅。</p></div></header><p id="providers-hint" class="hint">每行：名称 | URL | 前缀；前缀可省略。这里填写节点订阅，不是分流规则集。</p><textarea name="providers" aria-label="节点订阅列表" aria-describedby="providers-hint" placeholder="main | https://example.com/sub.yaml | Main"></textarea></section>
       <section id="wireguard">
-        <header class="section-header"><span class="section-index" aria-hidden="true">03</span><div><h2>WireGuard 内网节点</h2><p class="hint">独立内网通道，不混入普通代理出口。</p></div></header>
+        <header class="section-header"><div><h2>WireGuard 内网节点</h2><p class="hint">独立内网通道，不混入普通代理出口。</p></div></header>
         <details><summary>节点命名、规则优先级与密钥说明</summary><p class="hint">点击添加后填写节点参数。每条配置自动生成 wg_名称 分组和内网规则；手写规则仍优先。移除卡片可取消该节点。密钥不会写入浏览器本地存储，但会包含在下载的配置中。</p></details>
         <div id="wg-entries"></div>
         <button type="button" id="add-wg">添加 WG 节点</button>
       </section>
-      <section id="custom-rules"><header class="section-header"><span class="section-index" aria-hidden="true">04</span><div><h2>自定义规则</h2><p class="hint">将指定域名或网段交给对应分组。</p></div></header>
+      <section id="custom-rules"><header class="section-header"><div><h2>自定义规则</h2><p class="hint">将指定域名或网段交给对应分组。</p></div></header>
         <p class="hint">下方填写手写匹配条件，每行一条，例如 DOMAIN-SUFFIX,example.com 或 IP-CIDR,192.168.10.0/24。只写“类型,匹配值”，不要附加目标组、no-resolve 等选项。完整或逻辑规则请在 YAML 模式使用 local_rules。</p>
         <label>直接代理到 proxy<textarea name="proxy_rules" aria-describedby="external-rule-hint" placeholder="DOMAIN-SUFFIX,example.com&#10;DOMAIN,api.example.com"></textarea></label>
         <p id="external-rule-hint" class="hint callout">外部列表 URL 请填到下面的<a href="#external-rules">“外部规则集”</a>，目标组设为 <code>proxy</code>；不要直接粘贴到这里。</p>
@@ -174,7 +170,7 @@
         <details><summary>隐藏自动测速组与特殊目标</summary><p id="auto-group-help" class="hint"></p><p class="hint">DIRECT、REJECT 是内置动作，也可以作为规则目标。一般优先选择可见的手动分组。</p></details>
       </section>
       <section id="external-rules">
-        <header class="section-header"><span class="section-index" aria-hidden="true">05</span><div><h2>外部规则集</h2><p class="hint">添加规则直链，自动生成 rule-providers 和 RULE-SET。</p></div></header>
+        <header class="section-header"><div><h2>外部规则集</h2><p class="hint">添加规则直链，自动生成 rule-providers 和 RULE-SET。</p></div></header>
         <p class="hint">填写 Clash/Mihomo 规则集的直链，不是节点订阅或网页地址。由 Mihomo 使用配置时下载，本页面不会访问该 URL。</p>
         <details><summary>如何选择内容类型、格式和目标组？</summary>
         <p class="hint">默认通过 DIRECT 下载，每 24 小时更新。</p>
@@ -192,9 +188,8 @@
       </div>
     </fieldset>
     <div id="file-editor" hidden><section><header class="section-header"><div><h2>values.yaml</h2><p class="hint">直接编辑完整配置。内容会保存在当前浏览器，含密钥时请勿使用共享设备。</p></div></header><textarea id="file-values" aria-label="完整 values.yaml 配置" spellcheck="false"></textarea></section></div>
-    <div class="form-actions"><p class="hint">生成后下载配置，再导入 Mihomo 使用。</p><div class="action-buttons"><button id="generate" type="submit">生成配置</button><button id="download" type="button" disabled>下载 config.yaml</button></div></div>
+    <div class="form-actions"><p class="hint">生成后下载配置，再导入 Mihomo 使用。</p><div class="action-buttons"><button id="generate" type="submit">生成配置</button><button id="download" type="button" disabled>下载 config.yaml</button></div><pre id="status" role="alert" hidden></pre></div>
   </form>
-  <div class="result-panel"><span class="result-label">生成状态</span><pre id="status" role="status" aria-live="polite">就绪</pre></div>
   <footer class="page-footer">仅生成配置 · 实际代理连接由 Mihomo 核心处理</footer>
   </main>
 
@@ -402,16 +397,17 @@
       return values;
     }
     form.onsubmit = async event => {
-      event.preventDefault(); generate.disabled = true; download.disabled = true; status.textContent = '生成中…';
+      event.preventDefault(); generate.disabled = true; download.disabled = true;
+      generate.textContent = '生成中…'; status.hidden = true; status.textContent = '';
       try {
         const values = mode === 'file' ? fileValues.value : valuesFromForm();
         if (mode === 'file') localStorage.setItem('mihomo-values', values);
         const response = await fetch('/api/generate', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({values})});
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || '生成失败');
-        config = result.config; download.disabled = false; status.textContent = '生成成功，可以点击下载 config.yaml。';
-      } catch (error) { status.textContent = '错误：' + error.message; }
-      finally { generate.disabled = false; }
+        config = result.config; download.disabled = false;
+      } catch (error) { status.textContent = '错误：' + error.message; status.hidden = false; }
+      finally { generate.disabled = false; generate.textContent = '生成配置'; }
     };
     download.onclick = () => { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([config], {type: 'application/yaml'})); link.download = 'config.yaml'; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); };
   </script>
