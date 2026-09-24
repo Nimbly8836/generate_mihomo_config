@@ -85,14 +85,18 @@
     details { margin: 16px 0; padding: 0 14px; border: 1px solid var(--border); border-radius: 7px; }
     summary { padding: 12px 0; cursor: pointer; color: var(--muted-foreground); font-size: 12px; }
     details[open] > summary { color: var(--foreground); }
-    details .hint { margin-top: 0; font-size: 12px; }
-    details ul { padding-left: 18px; }
-    details li + li { margin-top: 8px; }
+    details > .hint { margin-top: 0; font-size: 12px; }
+    details > ul { padding-left: 18px; }
+    details > ul > li + li { margin-top: 8px; }
+    #advanced-settings { margin: 0; padding: 0; border: 0; scroll-margin-top: 24px; }
+    #advanced-settings > summary { padding: 18px 24px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--foreground); font-size: 14px; font-weight: 500; }
+    #advanced-settings[open] > summary { margin-bottom: 20px; }
+    .advanced-description { display: block; margin: 4px 0 0 18px; color: var(--muted-foreground); font-size: 12px; font-weight: 400; }
     .form-actions { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-top: 24px; padding: 16px 20px; position: sticky; bottom: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); box-shadow: var(--shadow); }
     .action-buttons { display: flex; flex-wrap: wrap; gap: 10px; }
     .form-actions .hint { margin: 0; font-size: 12px; }
-    #generate, #download-result { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
-    #generate:hover:not(:disabled), #download-result:hover { opacity: .85; }
+    #generate, #download { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+    #generate:hover:not(:disabled), #download:hover:not(:disabled) { opacity: .85; }
     #status { flex-basis: 100%; margin: 0; padding: 12px 14px; border: 1px solid var(--destructive); border-radius: 7px; background: var(--destructive-background); color: var(--destructive); white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 ui-monospace, monospace; }
     .page-footer { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: 11px; }
     #result-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--foreground); overflow: auto; }
@@ -144,9 +148,7 @@
         <p class="nav-heading">配置导航</p>
         <a href="#general">基础设置</a>
         <a href="#subscriptions">节点订阅</a>
-        <a href="#wireguard">WireGuard</a>
-        <a href="#custom-rules">自定义规则</a>
-        <a href="#external-rules">外部规则集</a>
+        <a id="advanced-link" href="#advanced-settings">高级配置</a>
       </nav>
       <div class="sections">
       <section id="general"><header class="section-header"><div><h2>基础设置</h2><p class="hint">配置入口端口、分组模式与实验功能。</p></div></header><div class="grid">
@@ -161,6 +163,9 @@
         </div>
       </section>
       <section id="subscriptions"><header class="section-header"><div><h2>节点订阅</h2><p class="hint">添加节点来源，支持多个订阅。</p></div></header><p id="providers-hint" class="hint">每行：名称 | URL | 前缀；前缀可省略。这里填写节点订阅，不是分流规则集。</p><textarea name="providers" aria-label="节点订阅列表" aria-describedby="providers-hint" placeholder="main | https://example.com/sub.yaml | Main"></textarea></section>
+      <details id="advanced-settings">
+        <summary>高级配置<span class="advanced-description">WireGuard、自定义规则和外部规则集（可选）</span></summary>
+        <div class="sections">
       <section id="wireguard">
         <header class="section-header"><div><h2>WireGuard 内网节点</h2><p class="hint">独立内网通道，不混入普通代理出口。</p></div></header>
         <details><summary>节点命名、规则优先级与密钥说明</summary><p class="hint">点击添加后填写节点参数。每条配置自动生成 wg_名称 分组和内网规则；手写规则仍优先。移除卡片可取消该节点。密钥不会写入浏览器本地存储，但会包含在下载的配置中。</p></details>
@@ -193,10 +198,12 @@
         <button type="button" id="add-rule-provider">添加外部规则集</button>
         <datalist id="policy-targets"></datalist>
       </section>
+        </div>
+      </details>
       </div>
     </fieldset>
     <div id="file-editor" hidden><section><header class="section-header"><div><h2>values.yaml</h2><p class="hint">直接编辑完整配置。内容会保存在当前浏览器，含密钥时请勿使用共享设备。</p></div></header><textarea id="file-values" aria-label="完整 values.yaml 配置" spellcheck="false"></textarea></section></div>
-    <div class="form-actions"><p class="hint">生成后下载配置，再导入 Mihomo 使用。</p><div class="action-buttons"><button id="generate" type="submit">生成配置</button><button id="download" type="button" disabled>下载 config.yaml</button></div><pre id="status" role="alert" hidden></pre></div>
+    <div class="form-actions"><p class="hint">生成后下载配置，再导入 Mihomo 使用。</p><div class="action-buttons"><button id="generate" type="submit">生成配置</button></div><pre id="status" role="alert" hidden></pre></div>
   </form>
   <footer class="page-footer">仅生成配置 · 实际代理连接由 Mihomo 核心处理</footer>
   </main>
@@ -206,7 +213,7 @@
     <p id="result-note" class="hint">配置已生成，可以复制或直接下载。内容可能包含密钥，请妥善保管。</p>
     <label for="result-config">config.yaml</label>
     <textarea id="result-config" readonly wrap="off" spellcheck="false"></textarea>
-    <div class="dialog-actions"><button id="copy-config" type="button">复制配置</button><button id="download-result" type="button">下载 config.yaml</button></div>
+    <div class="dialog-actions"><button id="copy-config" type="button">复制配置</button><button id="download" type="button" disabled>下载配置</button></div>
     <p id="copy-message" class="hint" role="status" aria-live="polite" hidden></p>
   </dialog>
 
@@ -255,6 +262,11 @@
     const form = document.querySelector('#form'), formEditor = document.querySelector('#form-editor'), fileEditor = document.querySelector('#file-editor'), fileValues = document.querySelector('#file-values'), status = document.querySelector('#status');
     const formMode = document.querySelector('#form-mode'), fileMode = document.querySelector('#file-mode'), themeToggle = document.querySelector('#theme-toggle'), generate = document.querySelector('#generate'), download = document.querySelector('#download');
     const resultDialog = document.querySelector('#result-dialog'), resultConfig = document.querySelector('#result-config'), copyConfig = document.querySelector('#copy-config'), copyMessage = document.querySelector('#copy-message');
+    const advancedSettings = document.querySelector('#advanced-settings');
+    document.querySelector('#advanced-link').onclick = () => { advancedSettings.open = true; };
+    form.addEventListener('invalid', event => {
+      if (advancedSettings.contains(event.target)) advancedSettings.open = true;
+    }, true);
     let config = '', mode = localStorage.getItem('mihomo-mode') || 'form';
     const regions = ['hk', 'jp', 'tw', 'sg', 'us', 'kr', 'eu', 'others'];
     const baseGroups = ['default', 'proxy', 'my_proxy', 'ad_block', 'ai', 'game', 'media', 'chat', 'dev', 'cloud', 'download', 'adult', 'china', 'other', 'final', 'domestic', 'all_nodes', ...regions];
@@ -431,7 +443,6 @@
       finally { generate.disabled = false; generate.textContent = '生成配置'; }
     };
     download.onclick = () => { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([config], {type: 'application/yaml'})); link.download = 'config.yaml'; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); };
-    document.querySelector('#download-result').onclick = download.onclick;
     document.querySelector('#close-result').onclick = () => resultDialog.close();
     resultDialog.onclose = () => generate.focus();
     copyConfig.onclick = async () => {

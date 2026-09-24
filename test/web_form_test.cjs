@@ -10,6 +10,57 @@ const { spawnSync } = require("node:child_process");
 const html = fs.readFileSync(path.join(__dirname, "../web/index.html"), "utf8");
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 
+test("download is only offered in the result dialog with a concise label", () => {
+  const form = html.match(/<form id="form"[\s\S]*?<\/form>/)[0];
+  const dialog = html.match(/<dialog id="result-dialog"[\s\S]*?<\/dialog>/)[0];
+  assert.equal(/id="download"/.test(form), false);
+  assert.match(dialog, /<button id="download"[^>]*>下载配置<\/button>/);
+  assert.equal((html.match(/id="download"/g) || []).length, 1);
+});
+
+test("advanced features start collapsed after the two primary sections", () => {
+  const opening = html.match(/<details id="advanced-settings"[^>]*>/);
+  assert.ok(opening, 'advanced settings disclosure is missing');
+  assert.doesNotMatch(opening[0], /\bopen(?:\s|=|>)/);
+  const advanced = html.indexOf(opening[0]);
+  for (const id of ['general', 'subscriptions']) assert.ok(html.indexOf(`id="${id}"`) < advanced);
+  for (const id of ['wireguard', 'custom-rules', 'external-rules']) assert.ok(html.indexOf(`id="${id}"`) > advanced);
+  const nav = html.match(/<nav class="section-nav"[\s\S]*?<\/nav>/)[0];
+  assert.match(nav, /href="#advanced-settings"/);
+  assert.doesNotMatch(nav, /href="#(?:wireguard|custom-rules|external-rules)"/);
+});
+
+test("advanced navigation opens the optional controls", () => {
+  const { element } = page(false);
+  assert.equal(element('#advanced-settings').open, false);
+  element('#advanced-link').onclick();
+  assert.equal(element('#advanced-settings').open, true);
+});
+
+test("invalid advanced controls are revealed without expanding for basic errors", () => {
+  const { element } = page(false);
+  const invalidField = {};
+  element('#advanced-settings').contains = target => target === invalidField;
+  assert.equal(element('#form').capture, true);
+  element('#form').listeners.invalid({ target: {} });
+  assert.equal(element('#advanced-settings').open, false);
+  element('#form').listeners.invalid({ target: invalidField });
+  assert.equal(element('#advanced-settings').open, true);
+});
+
+test("collapsing advanced settings preserves submitted values", async () => {
+  const { element, requests } = page(false, {
+    ...wgFields(), proxy_rules: 'DOMAIN-SUFFIX,example.com',
+    rule_name: ['extra'], rule_url: ['https://example.com/rules.mrs'],
+    rule_behavior: ['domain'], rule_format: ['mrs'], rule_policy: ['proxy'],
+  });
+  element('#advanced-settings').open = false;
+  await element('#form').onsubmit({ preventDefault() {} });
+  assert.equal(requests[0].values.wireguard[0].name, 'office');
+  assert.deepEqual(requests[0].values.proxy_rules, ['DOMAIN-SUFFIX,example.com']);
+  assert.equal(requests[0].values.custom_rule_providers[0].name, 'extra');
+});
+
 test("successful generation opens a read-only result dialog", async () => {
   const { context, element } = page(false);
   const config = '# 中文配置\n<script>not markup</script>\n';
@@ -20,7 +71,7 @@ test("successful generation opens a read-only result dialog", async () => {
   assert.match(html, /<textarea id="result-config"[^>]*\breadonly\b/);
   assert.match(html, /<dialog id="result-dialog"[^>]*aria-labelledby="result-title"/);
   assert.equal(element('#status').hidden, true);
-  assert.equal(element('#download-result').onclick, element('#download').onclick);
+  assert.equal(typeof element('#download').onclick, 'function');
 });
 
 test("closing the preview returns focus to the generate button", async () => {
@@ -163,6 +214,10 @@ function page(ip4p, extraFields = {}) {
           },
         },
         setAttribute() {},
+        addEventListener(type, handler, capture) {
+          (this.listeners ||= {})[type] = handler;
+          this.capture = capture;
+        },
         replaceChildren(...children) { this.children = children; },
         append() {},
         content: { cloneNode() { return {}; } },
