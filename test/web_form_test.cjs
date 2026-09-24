@@ -10,6 +10,81 @@ const { spawnSync } = require("node:child_process");
 const html = fs.readFileSync(path.join(__dirname, "../web/index.html"), "utf8");
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 
+test("successful generation opens a read-only result dialog", async () => {
+  const { context, element } = page(false);
+  const config = '# 中文配置\n<script>not markup</script>\n';
+  context.fetch = async () => ({ ok: true, json: async () => ({ config }) });
+  await element('#form').onsubmit({ preventDefault() {} });
+  assert.equal(element('#result-dialog').open, true);
+  assert.equal(element('#result-config').value, config);
+  assert.match(html, /<textarea id="result-config"[^>]*\breadonly\b/);
+  assert.match(html, /<dialog id="result-dialog"[^>]*aria-labelledby="result-title"/);
+  assert.equal(element('#status').hidden, true);
+  assert.equal(element('#download-result').onclick, element('#download').onclick);
+});
+
+test("closing the preview returns focus to the generate button", async () => {
+  const { element } = page(false);
+  await element('#form').onsubmit({ preventDefault() {} });
+  element('#close-result').onclick();
+  assert.equal(element('#result-dialog').open, false);
+  assert.equal(element('#generate').focused, true);
+});
+
+test("copy uses Clipboard API and gives explicit confirmation", async () => {
+  const { context, element } = page(false);
+  let copied;
+  context.navigator.clipboard = { writeText: async text => { copied = text; } };
+  await element('#form').onsubmit({ preventDefault() {} });
+  await element('#copy-config').onclick();
+  assert.equal(copied, 'test-config');
+  assert.equal(element('#copy-message').textContent, '已复制到剪贴板。');
+  assert.equal(element('#copy-message').hidden, false);
+  assert.equal(element('#copy-config').disabled, false);
+});
+
+test("denied clipboard permission falls back to selected-text copy", async () => {
+  const { context, element } = page(false);
+  context.navigator.clipboard = { writeText: async () => { throw new Error('denied'); } };
+  context.document.execCommand = command => { assert.equal(command, 'copy'); return true; };
+  await element('#form').onsubmit({ preventDefault() {} });
+  await element('#copy-config').onclick();
+  assert.equal(element('#result-config').selected, true);
+  assert.equal(element('#copy-message').textContent, '已复制到剪贴板。');
+});
+
+test("unavailable clipboard offers manual copying without false success", async () => {
+  const { context, element } = page(false);
+  context.document.execCommand = () => false;
+  await element('#form').onsubmit({ preventDefault() {} });
+  await element('#copy-config').onclick();
+  assert.equal(element('#result-config').selected, true);
+  assert.match(element('#copy-message').textContent, /手动复制/);
+  assert.equal(element('#copy-config').disabled, false);
+});
+
+test("regeneration refreshes preview and clears prior copy feedback", async () => {
+  const { context, element } = page(false);
+  await element('#form').onsubmit({ preventDefault() {} });
+  element('#copy-message').textContent = 'old feedback';
+  element('#copy-message').hidden = false;
+  element('#result-dialog').close();
+  context.fetch = async () => ({ ok: true, json: async () => ({ config: 'new-config' }) });
+  await element('#form').onsubmit({ preventDefault() {} });
+  assert.equal(element('#result-dialog').open, true);
+  assert.equal(element('#result-config').value, 'new-config');
+  assert.equal(element('#copy-message').hidden, true);
+  assert.equal(element('#copy-message').textContent, '');
+});
+
+test("failed generation does not open a success dialog", async () => {
+  const { context, element } = page(false);
+  context.fetch = async () => ({ ok: false, json: async () => ({ error: '生成失败' }) });
+  await element('#form').onsubmit({ preventDefault() {} });
+  assert.equal(element('#result-dialog').open, false);
+  assert.equal(element('#status').hidden, false);
+});
+
 test("decorative numbering and idle status are absent", () => {
   assert.doesNotMatch(html, /section-index|result-label|生成状态|>就绪</);
   const nav = html.match(/<nav class="section-nav"[\s\S]*?<\/nav>/)[0];
@@ -76,6 +151,11 @@ function page(ip4p, extraFields = {}) {
     if (!elements.has(key)) {
       elements.set(key, {
         value: "",
+        open: false,
+        showModal() { this.open = true; },
+        close() { this.open = false; this.onclose?.(); },
+        focus() { this.focused = true; },
+        select() { this.selected = true; },
         classList: {
           toggle() {},
           contains() {
@@ -105,6 +185,7 @@ function page(ip4p, extraFields = {}) {
   const requests = [];
   const context = {
     URL,
+    navigator: {},
     document: {
       querySelector: element, documentElement: element("root"),
       createElement() { return {}; }
