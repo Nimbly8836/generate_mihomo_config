@@ -10,6 +10,18 @@ const { spawnSync } = require("node:child_process");
 const html = fs.readFileSync(path.join(__dirname, "../web/index.html"), "utf8");
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 
+test("primary form guidance is concise and describes Clash subscriptions", () => {
+  for (const text of [
+    '直接填写参数，或编辑完整',
+    '配置入口端口、分组模式与 Web 密钥。',
+    '添加节点来源，支持多个订阅。',
+  ]) assert.equal(html.includes(text), false, text);
+  const providersHint = html.match(/<p id="providers-hint"[^>]*>(.*?)<\/p>/)[1];
+  assert.match(providersHint, /Clash 类型的订阅链接/);
+  assert.doesNotMatch(providersHint, /不是分流规则集/);
+  assert.match(html, /id="group-mode-hint"[^>]*>simple：基础分类；detailed：增加具体服务分组。/);
+});
+
 test("IP4P lives only in the collapsed advanced settings", () => {
   const basic = html.match(/<section id="general"[\s\S]*?<\/section>/)[0];
   const advanced = html.slice(html.indexOf('<details id="advanced-settings"'), html.indexOf('<div id="file-editor"'));

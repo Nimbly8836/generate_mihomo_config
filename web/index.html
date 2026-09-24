@@ -36,8 +36,7 @@
     h1 { margin: 0; font-size: clamp(21px, 3vw, 28px); font-weight: 650; line-height: 1.35; letter-spacing: -.04em; }
     h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -.02em; }
     .eyebrow { margin: 0 0 3px; font-size: 10px; font-weight: 600; letter-spacing: .16em; color: var(--muted-foreground); }
-    .intro { margin: 20px 0 8px; }
-    .repository { margin: 0; font-size: 12px; }
+    .repository { margin: 14px 0 0; font-size: 12px; }
     a { color: var(--foreground); text-underline-offset: 4px; text-decoration-color: var(--border); }
     a:hover { text-decoration-color: currentColor; }
     .hint { color: var(--muted-foreground); font-size: 13px; line-height: 1.75; overflow-wrap: anywhere; }
@@ -137,7 +136,6 @@
       <div class="brand"><span class="brand-mark" aria-hidden="true">M</span><div><p class="eyebrow">MIHOMO CONFIG</p><h1>Mihomo 配置生成器</h1></div></div>
       <button type="button" id="theme-toggle" class="theme-toggle" aria-label="切换主题" title="切换到白天模式">☀️</button>
     </div>
-    <p class="hint intro">直接填写参数，或编辑完整 <code>values.yaml</code>，生成后下载 <code>config.yaml</code>。两种输入模式独立，不会互相转换。</p>
     <p class="hint repository">项目仓库：<a href="https://github.com/Nimbly8836/generate_mihomo_config" target="_blank" rel="noopener noreferrer">github.com/Nimbly8836/generate_mihomo_config</a>。更多说明请参考仓库。</p>
   </header>
   <div class="mode-switch" role="group" aria-label="配置输入方式"><button type="button" id="form-mode" class="active">直接填写参数</button><button type="button" id="file-mode">编辑配置文件</button></div>
@@ -150,14 +148,14 @@
         <a id="advanced-link" href="#advanced-settings">高级配置</a>
       </nav>
       <div class="sections">
-      <section id="general"><header class="section-header"><div><h2>基础设置</h2><p class="hint">配置入口端口、分组模式与 Web 密钥。</p></div></header><div class="grid">
+      <section id="general"><header class="section-header"><h2>基础设置</h2></header><div class="grid">
         <label>端口<input name="port" type="number" value="7890" min="1" max="65535" required></label>
         <label>Web 端口<input name="web_port" type="number" value="9090" min="1" max="65535" required></label>
-        <label>分组模式<select name="group_mode"><option value="simple">simple</option><option value="detailed">detailed</option></select></label>
+        <label>分组模式<select name="group_mode" aria-label="分组模式" aria-describedby="group-mode-hint"><option value="simple">simple</option><option value="detailed">detailed</option></select><span id="group-mode-hint" class="hint">simple：基础分类；detailed：增加具体服务分组。</span></label>
         <label>Web 密钥<input name="web_secret" placeholder="留空自动生成"></label>
       </div>
       </section>
-      <section id="subscriptions"><header class="section-header"><div><h2>节点订阅</h2><p class="hint">添加节点来源，支持多个订阅。</p></div></header><p id="providers-hint" class="hint">每行：名称 | URL | 前缀；前缀可省略。这里填写节点订阅，不是分流规则集。</p><textarea name="providers" aria-label="节点订阅列表" aria-describedby="providers-hint" placeholder="main | https://example.com/sub.yaml | Main"></textarea></section>
+      <section id="subscriptions"><header class="section-header"><h2>节点订阅</h2></header><p id="providers-hint" class="hint">每行：名称 | URL | 前缀；前缀可省略。URL 请填写 Clash 类型的订阅链接。</p><textarea name="providers" aria-label="节点订阅列表" aria-describedby="providers-hint" placeholder="main | https://example.com/sub.yaml | Main"></textarea></section>
       <details id="advanced-settings">
         <summary>高级配置<span class="advanced-description">实验功能、WireGuard、自定义规则和外部规则集（可选）</span></summary>
         <div class="sections">
