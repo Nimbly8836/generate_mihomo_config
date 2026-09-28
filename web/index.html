@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Mihomo 配置生成器</title>
+  <link rel="stylesheet" href="/assets/codemirror/codemirror.css">
   <style>
     :root {
       color-scheme: dark;
@@ -13,6 +14,7 @@
       --border: #303036; --primary: #fafafa; --primary-foreground: #18181b;
       --accent: #27272a; --ring: #a1a1aa;
       --destructive: #fda4af; --destructive-background: #35171f;
+      --editor-key: #93c5fd; --editor-string: #86efac; --editor-number: #fdba74; --editor-keyword: #d8b4fe;
       --shadow: 0 2px 8px #00000014; --radius: 12px; --overlay: #00000080;
     }
     :root.light {
@@ -22,6 +24,7 @@
       --border: #dedee3; --primary: #18181b; --primary-foreground: #fafafa;
       --accent: #e9e9ee; --ring: #71717a;
       --destructive: #be123c; --destructive-background: #fff1f2;
+      --editor-key: #1d4ed8; --editor-string: #15803d; --editor-number: #9a3412; --editor-keyword: #7e22ce;
       --shadow: 0 2px 8px #18181b06;
     }
     *, *::before, *::after { box-sizing: border-box; }
@@ -97,10 +100,24 @@
     #generate:hover:not(:disabled), #download:hover:not(:disabled) { opacity: .85; }
     #status { flex-basis: 100%; margin: 0; padding: 12px 14px; border: 1px solid var(--destructive); border-radius: 7px; background: var(--destructive-background); color: var(--destructive); white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 ui-monospace, monospace; }
     .page-footer { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: 11px; }
-    #result-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--foreground); overflow: auto; }
-    #result-dialog::backdrop { background: var(--overlay); }
+    #result-dialog, #reference-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--foreground); overflow: auto; }
+    #result-dialog::backdrop, #reference-dialog::backdrop { background: var(--overlay); }
     .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-    #result-config { height: min(45dvh, 360px); min-height: 160px; resize: none; }
+    #result-config, #reference-values { height: min(45dvh, 360px); min-height: 160px; resize: none; }
+    .editor-header { justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
+    .CodeMirror { height: 520px; border: 1px solid var(--border); border-radius: 6px; background: var(--input); color: var(--foreground); font: 13px/1.75 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .CodeMirror-focused { outline: 2px solid var(--ring); outline-offset: 2px; }
+    .CodeMirror textarea { min-height: 0; padding: 0; border: 0; outline: none; }
+    .CodeMirror-gutters { background: var(--muted); border-right: 1px solid var(--border); }
+    .CodeMirror-linenumber { color: var(--muted-foreground); }
+    .CodeMirror-cursor { border-left-color: var(--foreground); }
+    .CodeMirror-selected, .CodeMirror-focused .CodeMirror-selected { background: var(--accent); }
+    .cm-s-mihomo .cm-atom, .cm-s-mihomo .cm-def { color: var(--editor-key); }
+    .cm-s-mihomo .cm-string { color: var(--editor-string); }
+    .cm-s-mihomo .cm-number { color: var(--editor-number); }
+    .cm-s-mihomo .cm-keyword, .cm-s-mihomo .cm-variable-2 { color: var(--editor-keyword); }
+    .cm-s-mihomo .cm-comment { color: var(--muted-foreground); }
+    .cm-s-mihomo .cm-meta { color: var(--foreground); }
     .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 16px; }
     #copy-message { margin-bottom: 0; }
     @media (max-width: 760px) {
@@ -123,7 +140,8 @@
       input, textarea, select { font-size: 16px; }
       .mode-switch { display: flex; }
       .mode-switch button { flex: 1; padding: 8px 10px; }
-      #result-dialog { padding: 18px; }
+      #result-dialog, #reference-dialog { padding: 18px; }
+      .CodeMirror { font-size: 16px; }
       .dialog-actions button { flex: 1; }
     }
     @media (prefers-reduced-motion: reduce) { button { transition: none; } }
@@ -200,7 +218,7 @@
       </details>
       </div>
     </fieldset>
-    <div id="file-editor" hidden><section><header class="section-header"><div><h2>values.yaml</h2><p class="hint">直接编辑完整配置。内容会保存在当前浏览器，含密钥时请勿使用共享设备。</p></div></header><textarea id="file-values" aria-label="完整 values.yaml 配置" spellcheck="false"></textarea></section></div>
+    <div id="file-editor" hidden><section><header class="section-header editor-header"><div><h2>values.yaml</h2><p class="hint">生成时会在当前浏览器保存编辑内容；含密钥时请勿使用共享设备。</p></div><button id="open-reference" type="button">参考配置</button></header><textarea id="file-values" aria-label="完整 values.yaml 配置" spellcheck="false"></textarea><p class="hint">Tab / Shift+Tab：调整两空格缩进；Esc：返回生成按钮。</p></section></div>
     <div class="form-actions"><p class="hint">生成后下载配置，再导入 Mihomo 使用。</p><div class="action-buttons"><button id="generate" type="submit">生成配置</button></div><pre id="status" role="alert" hidden></pre></div>
   </form>
   <footer class="page-footer">仅生成配置 · 实际代理连接由 Mihomo 核心处理</footer>
@@ -213,6 +231,14 @@
     <textarea id="result-config" readonly wrap="off" spellcheck="false"></textarea>
     <div class="dialog-actions"><button id="copy-config" type="button">复制配置</button><button id="download" type="button" disabled>下载配置</button></div>
     <p id="copy-message" class="hint" role="status" aria-live="polite" hidden></p>
+  </dialog>
+
+  <dialog id="reference-dialog" aria-labelledby="reference-title" aria-describedby="reference-note">
+    <div class="dialog-header"><h2 id="reference-title">values.yaml 参考配置</h2><button id="close-reference" type="button" autofocus>关闭</button></div>
+    <p id="reference-note" class="hint">公开示例涵盖常用及高级配置。复制后请替换订阅、地址和密钥；可选功能按注释启用，不会覆盖编辑区现有内容。</p>
+    <textarea id="reference-values" aria-label="values.yaml 参考示例" readonly wrap="off" spellcheck="false"></textarea>
+    <div class="dialog-actions"><button id="copy-reference" type="button" disabled>复制参考配置</button></div>
+    <p id="reference-message" class="hint" role="status" aria-live="polite" hidden></p>
   </dialog>
 
   <template id="wg-template">
@@ -256,10 +282,14 @@
     </fieldset>
   </template>
 
+  <script src="/assets/codemirror/codemirror.js"></script>
+  <script src="/assets/codemirror/yaml.js"></script>
   <script>
     const form = document.querySelector('#form'), formEditor = document.querySelector('#form-editor'), fileEditor = document.querySelector('#file-editor'), fileValues = document.querySelector('#file-values'), status = document.querySelector('#status');
     const formMode = document.querySelector('#form-mode'), fileMode = document.querySelector('#file-mode'), themeToggle = document.querySelector('#theme-toggle'), generate = document.querySelector('#generate'), download = document.querySelector('#download');
     const resultDialog = document.querySelector('#result-dialog'), resultConfig = document.querySelector('#result-config'), copyConfig = document.querySelector('#copy-config'), copyMessage = document.querySelector('#copy-message');
+    const referenceButton = document.querySelector('#open-reference'), referenceDialog = document.querySelector('#reference-dialog'), referenceValues = document.querySelector('#reference-values'), referenceCopy = document.querySelector('#copy-reference'), referenceMessage = document.querySelector('#reference-message');
+    let yamlEditor = null;
     const advancedSettings = document.querySelector('#advanced-settings');
     document.querySelector('#advanced-link').onclick = () => { advancedSettings.open = true; };
     form.addEventListener('invalid', event => {
@@ -278,6 +308,18 @@
     themeToggle.onclick = () => setTheme(document.documentElement.classList.contains('light') ? 'dark' : 'light');
     setTheme(localStorage.getItem('mihomo-theme') || 'dark');
     fileValues.value = localStorage.getItem('mihomo-values') || 'proxy_providers: []\nlocal_proxies: []\nwireguard: []\ncustom_rule_providers: []\nlocal_rules: []\nproxy_rules: []\ndirect_rules: []\ngroup_rules: {}\n';
+    function refreshYamlEditor() {
+      if (!yamlEditor && typeof CodeMirror !== 'undefined') {
+        yamlEditor = CodeMirror.fromTextArea(fileValues, {
+          mode: 'yaml', theme: 'mihomo', lineNumbers: true, lineWrapping: false,
+          indentUnit: 2, tabSize: 2, indentWithTabs: false,
+          screenReaderLabel: 'values.yaml 配置编辑器',
+          extraKeys: { Tab: 'indentMore', 'Shift-Tab': 'indentLess', Esc: () => generate.focus() }
+        });
+        yamlEditor.on('change', () => yamlEditor.save());
+      }
+      yamlEditor?.refresh();
+    }
     function setMode(next) {
       mode = next;
       localStorage.setItem('mihomo-mode', mode);
@@ -287,7 +329,8 @@
       fileEditor.hidden = !file;
       formMode.classList.toggle('active', !file);
       fileMode.classList.toggle('active', file);
-      if (!file) updateGroupHelp();
+      if (file) refreshYamlEditor();
+      else updateGroupHelp();
     }
     formMode.onclick = () => setMode('form');
     fileMode.onclick = () => setMode('file');
@@ -443,22 +486,45 @@
     download.onclick = () => { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([config], {type: 'application/yaml'})); link.download = 'config.yaml'; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); };
     document.querySelector('#close-result').onclick = () => resultDialog.close();
     resultDialog.onclose = () => generate.focus();
-    copyConfig.onclick = async () => {
-      const text = config;
-      copyConfig.disabled = true;
+    async function copyPreview(textarea, feedback, button, dialog) {
+      const text = textarea.value;
+      button.disabled = true;
       let copied = false;
       try {
         try {
           if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); copied = true; }
         } catch { /* HTTP origins or denied permissions may require the fallback. */ }
-        if (!resultDialog.open || config !== text) return;
+        if (!dialog.open || textarea.value !== text) return;
         if (!copied) {
-          resultConfig.focus(); resultConfig.select();
+          textarea.focus(); textarea.select();
           try { copied = document.execCommand('copy'); } catch { /* Keep the text selected for manual copying. */ }
         }
-        copyMessage.textContent = copied ? '已复制到剪贴板。' : '自动复制失败，请手动复制已选中的配置。';
-        copyMessage.hidden = false;
-      } finally { copyConfig.disabled = false; }
+        feedback.textContent = copied ? '已复制到剪贴板。' : '自动复制失败，请手动复制已选中的配置。';
+        feedback.hidden = false;
+      } finally { button.disabled = false; }
+    }
+    copyConfig.onclick = () => copyPreview(resultConfig, copyMessage, copyConfig, resultDialog);
+    referenceCopy.onclick = () => copyPreview(referenceValues, referenceMessage, referenceCopy, referenceDialog);
+    document.querySelector('#close-reference').onclick = () => referenceDialog.close();
+    referenceDialog.onclose = () => referenceButton.focus();
+    let referenceRequest = 0;
+    referenceButton.onclick = async () => {
+      const request = ++referenceRequest;
+      referenceValues.value = ''; referenceCopy.disabled = true;
+      referenceMessage.textContent = '正在加载参考配置…'; referenceMessage.hidden = false;
+      referenceDialog.showModal();
+      try {
+        const response = await fetch('/examples/values.yaml');
+        if (!response.ok) throw new Error('reference unavailable');
+        const text = await response.text();
+        if (!text.trim()) throw new Error('empty reference');
+        if (request !== referenceRequest) return;
+        referenceValues.value = text; referenceCopy.disabled = false;
+        referenceMessage.textContent = ''; referenceMessage.hidden = true;
+      } catch {
+        if (request !== referenceRequest) return;
+        referenceMessage.textContent = '参考配置加载失败，请关闭后重试。'; referenceMessage.hidden = false;
+      }
     };
   </script>
 </body>

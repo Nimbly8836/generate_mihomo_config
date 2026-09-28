@@ -15,6 +15,15 @@ HOST = ENV.fetch('HOST', '127.0.0.1')
 PORT = Integer(ENV.fetch('PORT', '4567'))
 MAX_BODY = 1_048_576
 
+# Exact public-file allowlist. Never resolve an arbitrary request path on disk.
+PUBLIC_FILES = {
+  '/examples/values.yaml' => ['text/plain; charset=utf-8', File.join(ROOT, 'config-values.example.yaml')],
+  '/assets/codemirror/codemirror.js' => ['text/javascript; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/codemirror.js')],
+  '/assets/codemirror/yaml.js' => ['text/javascript; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/yaml.js')],
+  '/assets/codemirror/codemirror.css' => ['text/css; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/codemirror.css')],
+  '/assets/codemirror/LICENSE' => ['text/plain; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/LICENSE')]
+}.freeze
+
 def http_response(status, type, body, extra_headers = {})
   reason = { 200 => 'OK', 201 => 'Created', 400 => 'Bad Request', 404 => 'Not Found', 405 => 'Method Not Allowed',
              422 => 'Unprocessable Entity' }.fetch(status)
@@ -80,6 +89,9 @@ loop do
 
     response = if method == 'GET' && path == '/'
                  http_response(200, 'text/html; charset=utf-8', File.read(File.join(WEB_ROOT, 'index.html')))
+               elsif method == 'GET' && PUBLIC_FILES.key?(path)
+                 type, file = PUBLIC_FILES.fetch(path)
+                 http_response(200, type, File.read(file), 'X-Content-Type-Options' => 'nosniff')
                elsif method == 'GET' && path == '/api/v1/health'
                  json_response.call(200, 'status' => 'ok', 'service' => 'mihomo-config-generator')
                elsif method == 'POST' && path == '/api/v1/configs'

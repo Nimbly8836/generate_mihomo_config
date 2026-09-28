@@ -40,6 +40,22 @@ HOST=127.0.0.1 PORT=4567 ruby web_server.rb
 勾选后生成 `experimental.dialer-ip4p-convert: true`，不自动开启 IPv6 或修改 WG 节点；
 需要运行配置的 Mihomo 核心支持这个字段。开关只影响表单模式，YAML 模式仍以编辑内容为准。
 
+### YAML 编辑器与参考配置
+
+“编辑配置文件”模式提供 YAML 语法高亮和行号，长行横向滚动，不与真实换行混淆。
+`Tab` / `Shift+Tab` 调整两空格缩进，`Esc` 返回生成按钮。高亮是编辑辅助，配置仍需在生成时校验。
+切换输入模式不会清空编辑内容；YAML 内容仍在点击生成时保存到当前浏览器。
+
+点击标题旁的 **参考配置**，可查看、复制仓库公开的 [`config-values.example.yaml`](config-values.example.yaml)。
+示例包含基础设置、订阅、本地节点、IP4P/IPv6 覆盖、WG、自定义分组/规则、外部规则集、测速和 Fake-IP 设置；
+WG 等可选示例在注释中，启用时应替换相应空块，而不是保留重复键。
+它是填写参考，不是可直接联网的默认配置，请替换 URL、密码和密钥占位符。
+打开或复制参考配置不会覆盖编辑区，也不会额外写入 localStorage。
+
+编辑器使用本地打包的 CodeMirror 5.65.21（MIT，见 [来源和更新说明](web/vendor/codemirror/README.md)），无 CDN 请求或 Node 运行依赖。
+服务只按固定白名单提供编辑器资源和 `/examples/values.yaml`；该路径对应公开示例，不读取私人 values。
+不要将个人订阅或密钥写入这个公开示例文件。
+
 ### 在表单中添加 WG 节点
 
 点击 **添加 WG 节点**，填写名称、服务器、端口、客户端隧道地址、客户端私钥、服务端公钥和 `allowed-ips` 网段。
@@ -126,7 +142,7 @@ docker build -t mihomo-config-web:local .
 MIHOMO_WEB_IMAGE=mihomo-config-web:local docker compose up -d --wait
 ```
 
-`.dockerignore` 使用白名单，Dockerfile 也只显式复制运行需要的 5 个源文件；
+`.dockerignore` 使用白名单，Dockerfile 也只显式复制运行代码、本地编辑器资源和公开示例；
 不会将私人 values、生成的配置、订阅凭据或 `.git` 打进镜像。运行环境无需 Node.js 或额外应用 gem。
 
 #### GitHub Actions 构建与发布

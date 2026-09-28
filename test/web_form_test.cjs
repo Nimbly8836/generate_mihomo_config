@@ -10,6 +10,89 @@ const { spawnSync } = require("node:child_process");
 const html = fs.readFileSync(path.join(__dirname, "../web/index.html"), "utf8");
 const script = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 
+test("reference dialog loads the public example without replacing edited YAML", async () => {
+  const { context, element } = page(false);
+  element('#file-values').value = 'web_secret: user-owned\n';
+  context.localStorage.setItem = () => { throw new Error('unexpected persistence'); };
+  context.fetch = async url => {
+    assert.equal(url, '/examples/values.yaml');
+    return { ok: true, text: async () => '# reference\nwireguard: []\n' };
+  };
+  await element('#open-reference').onclick();
+  assert.equal(element('#reference-dialog').open, true);
+  assert.equal(element('#reference-values').value, '# reference\nwireguard: []\n');
+  assert.equal(element('#file-values').value, 'web_secret: user-owned\n');
+  assert.equal(element('#copy-reference').disabled, false);
+  assert.equal(element('#reference-message').hidden, true);
+});
+
+test("reference copy uses its own text and closing restores focus", async () => {
+  const { context, element } = page(false);
+  let copied;
+  context.fetch = async () => ({ ok: true, text: async () => 'port: 7890\n' });
+  context.navigator.clipboard = { writeText: async text => { copied = text; } };
+  await element('#open-reference').onclick();
+  await element('#copy-reference').onclick();
+  assert.equal(copied, 'port: 7890\n');
+  assert.equal(element('#reference-message').textContent, '已复制到剪贴板。');
+  element('#close-reference').onclick();
+  assert.equal(element('#reference-dialog').open, false);
+  assert.equal(element('#open-reference').focused, true);
+});
+
+test("reference loading failure is visible and retry does not leave stale content", async () => {
+  const { context, element } = page(false);
+  context.fetch = async () => ({ ok: false });
+  await element('#open-reference').onclick();
+  assert.equal(element('#copy-reference').disabled, true);
+  assert.equal(element('#reference-message').hidden, false);
+  assert.match(element('#reference-message').textContent, /失败/);
+  element('#reference-dialog').close();
+  context.fetch = async () => ({ ok: true, text: async () => 'proxy_providers: []\n' });
+  await element('#open-reference').onclick();
+  assert.equal(element('#reference-values').value, 'proxy_providers: []\n');
+  assert.equal(element('#reference-message').hidden, true);
+});
+
+test("YAML editor is initialized once, preserves text and syncs edits to generation", async () => {
+  const { context, element, requests } = page(false);
+  let options, change, content, created = 0, refreshed = 0;
+  context.CodeMirror = { fromTextArea(textarea, config) {
+    created++; options = config; content = textarea.value;
+    return {
+      on(event, callback) { assert.equal(event, 'change'); change = callback; },
+      refresh() { refreshed++; },
+      save() { textarea.value = content; },
+    };
+  } };
+  element('#file-values').value = 'port: 8000\n';
+  element('#file-mode').onclick();
+  assert.equal(content, 'port: 8000\n');
+  assert.equal(options.mode, 'yaml');
+  assert.equal(options.indentUnit, 2);
+  assert.equal(options.tabSize, 2);
+  assert.equal(options.indentWithTabs, false);
+  assert.equal(options.lineNumbers, true);
+  assert.equal(options.lineWrapping, false);
+  assert.equal(options.extraKeys.Tab, 'indentMore');
+  assert.equal(options.extraKeys['Shift-Tab'], 'indentLess');
+  options.extraKeys.Esc();
+  assert.equal(element('#generate').focused, true);
+  content = 'port: 8001\n'; change();
+  await element('#form').onsubmit({ preventDefault() {} });
+  assert.equal(requests[0].values, content);
+  element('#form-mode').onclick(); element('#file-mode').onclick();
+  assert.equal(created, 1);
+  assert.equal(refreshed, 2);
+});
+
+test("YAML editor scripts and styling are served locally without a CDN", () => {
+  assert.match(html, /src="\/assets\/codemirror\/codemirror.js"/);
+  assert.match(html, /src="\/assets\/codemirror\/yaml.js"/);
+  assert.match(html, /href="\/assets\/codemirror\/codemirror.css"/);
+  assert.doesNotMatch(html, /<(?:script|link)[^>]*(?:src|href)="https?:/);
+});
+
 test("primary form guidance is concise and describes Clash subscriptions", () => {
   for (const text of [
     '直接填写参数，或编辑完整',

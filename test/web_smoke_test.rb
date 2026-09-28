@@ -31,6 +31,44 @@ class WebSmokeTest < Minitest::Test
     assert_includes homepage.body, 'name="ip4p"'
   end
 
+  def test_public_reference_matches_repository_example_and_generates
+    response = request('/examples/values.yaml')
+    assert_equal '200', response.code
+    expected = File.binread(File.expand_path('../config-values.example.yaml', __dir__))
+    assert_equal expected, response.body.b
+    values = response.body.dup.force_encoding(Encoding::UTF_8)
+    assert values.valid_encoding?
+    %w[proxy_providers config_overrides wireguard custom_rule_providers local_rules].each do |key|
+      assert values.include?("#{key}:"), "missing reference section #{key}"
+    end
+    generated = request('/api/generate', 'values' => values)
+    assert_equal '200', generated.code
+    config = Psych.safe_load(JSON.parse(generated.body).fetch('config'), aliases: true)
+    assert_equal 7890, config.fetch('mixed-port')
+  end
+
+  def test_yaml_editor_assets_are_available_locally
+    assets = {
+      'codemirror.js' => 'text/javascript', 'yaml.js' => 'text/javascript',
+      'codemirror.css' => 'text/css', 'LICENSE' => 'text/plain'
+    }
+    assets.each do |name, content_type|
+      response = request("/assets/codemirror/#{name}")
+      assert_equal '200', response.code, name
+      assert response.fetch('content-type').start_with?(content_type), name
+      assert_equal 'nosniff', response.fetch('x-content-type-options')
+      expected = File.binread(File.expand_path("../web/vendor/codemirror/#{name}", __dir__))
+      assert_equal expected, response.body.b, name
+    end
+  end
+
+  def test_unlisted_file_paths_are_not_served
+    ['/config-values.yaml', '/examples/config-values-phone-wg.yaml',
+     '/assets/codemirror/../../config-values.yaml', '/examples/../config-values.yaml'].each do |path|
+      assert_equal '404', request(path).code, path
+    end
+  end
+
   def test_form_api_applies_ip4p_override
     response = request('/api/generate', 'values' => {
                          'proxy_providers' => [], 'local_proxies' => [], 'web_secret' => 'smoke-test-only',

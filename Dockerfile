@@ -12,6 +12,12 @@ RUN groupadd --gid 10001 app \
 COPY generate_mihomo_config.rb config-template.yaml.erb web_server.rb ./
 COPY lib/wireguard_config.rb ./lib/wireguard_config.rb
 COPY web/index.html ./web/index.html
+COPY config-values.example.yaml ./config-values.example.yaml
+COPY web/vendor/codemirror/codemirror.js \
+     web/vendor/codemirror/codemirror.css \
+     web/vendor/codemirror/yaml.js \
+     web/vendor/codemirror/LICENSE \
+     web/vendor/codemirror/README.md ./web/vendor/codemirror/
 
 USER 10001:10001
 EXPOSE 4567

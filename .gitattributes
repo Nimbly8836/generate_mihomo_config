@@ -1,0 +1,4 @@
+# Keep vendored upstream files identifiable and byte-for-byte unchanged.
+web/vendor/codemirror/* linguist-vendored
+# Preserve upstream CSS whitespace so it matches the pinned hash.
+web/vendor/codemirror/codemirror.css -whitespace

@@ -9,3 +9,11 @@
 !lib/wireguard_config.rb
 !web/
 !web/index.html
+!config-values.example.yaml
+!web/vendor/
+!web/vendor/codemirror/
+!web/vendor/codemirror/codemirror.js
+!web/vendor/codemirror/codemirror.css
+!web/vendor/codemirror/yaml.js
+!web/vendor/codemirror/LICENSE
+!web/vendor/codemirror/README.md
