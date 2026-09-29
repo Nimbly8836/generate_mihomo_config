@@ -17,6 +17,7 @@ MAX_BODY = 1_048_576
 
 # Exact public-file allowlist. Never resolve an arbitrary request path on disk.
 PUBLIC_FILES = {
+  '/favicon.svg' => ['image/svg+xml; charset=utf-8', File.join(WEB_ROOT, 'favicon.svg')],
   '/examples/values.yaml' => ['text/plain; charset=utf-8', File.join(ROOT, 'config-values.example.yaml')],
   '/assets/codemirror/codemirror.js' => ['text/javascript; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/codemirror.js')],
   '/assets/codemirror/yaml.js' => ['text/javascript; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/yaml.js')],

@@ -31,6 +31,17 @@ class WebSmokeTest < Minitest::Test
     assert_includes homepage.body, 'name="ip4p"'
   end
 
+  def test_browser_tab_favicon_is_linked_and_served
+    homepage = request('/')
+    assert_includes homepage.body, '<link rel="icon" type="image/svg+xml" href="/favicon.svg">'
+    icon = request('/favicon.svg')
+    assert_equal '200', icon.code
+    assert_equal 'image/svg+xml; charset=utf-8', icon.fetch('content-type')
+    assert_equal 'nosniff', icon.fetch('x-content-type-options')
+    expected = File.binread(File.expand_path('../web/favicon.svg', __dir__))
+    assert_equal expected, icon.body.b
+  end
+
   def test_public_reference_matches_repository_example_and_generates
     response = request('/examples/values.yaml')
     assert_equal '200', response.code

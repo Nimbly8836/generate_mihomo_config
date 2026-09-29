@@ -9,6 +9,7 @@
 !lib/wireguard_config.rb
 !web/
 !web/index.html
+!web/favicon.svg
 !config-values.example.yaml
 !web/vendor/
 !web/vendor/codemirror/

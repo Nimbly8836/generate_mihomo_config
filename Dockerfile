@@ -12,6 +12,7 @@ RUN groupadd --gid 10001 app \
 COPY generate_mihomo_config.rb config-template.yaml.erb web_server.rb ./
 COPY lib/wireguard_config.rb ./lib/wireguard_config.rb
 COPY web/index.html ./web/index.html
+COPY web/favicon.svg ./web/favicon.svg
 COPY config-values.example.yaml ./config-values.example.yaml
 COPY web/vendor/codemirror/codemirror.js \
      web/vendor/codemirror/codemirror.css \

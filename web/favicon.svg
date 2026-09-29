@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>Mihomo 配置生成器</title>
+  <rect x="1" y="1" width="62" height="62" rx="14" fill="#18181b" stroke="#a1a1aa" stroke-width="2"/>
+  <path d="M16 46V18h8l8 14 8-14h8v28h-8V32l-8 13-8-13v14z" fill="#fafafa"/>
+</svg>
