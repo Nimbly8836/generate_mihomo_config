@@ -207,18 +207,35 @@ class GenerateMihomoConfigTest < Minitest::Test
     assert status.success?, "mihomo validation failed (#{status.inspect}):\n#{diagnostics}"
   end
 
-  def test_provider_groups_keep_local_fallback_and_europe
-    with_generated_config(provider_present_values) do |config, _output_path|
-      assert_equal(%w[hk hk_auto jp jp_auto tw tw_auto sg sg_auto us us_auto kr kr_auto eu eu_auto others others_auto],
-                   config.fetch('proxy-groups').last(16).map { |group| group.fetch('name') })
-      assert_equal ['my_proxy'], proxy_group(config, 'all_nodes').fetch('proxies')
-      assert_equal 'select', proxy_group(config, 'eu').fetch('type')
-      assert_equal 'url-test', proxy_group(config, 'eu_auto').fetch('type')
-      assert_equal true, proxy_group(config, 'eu_auto').fetch('hidden')
+  def test_provider_regions_are_url_tests_without_local_or_hidden_groups
+    %w[simple detailed].each do |mode|
+      [[], [handwritten_proxy]].each do |local_proxies|
+        values = provider_present_values.merge('group_mode' => mode, 'local_proxies' => local_proxies)
+        with_generated_config(values) do |config, _output_path|
+          group_names = config.fetch('proxy-groups').map { |group| group.fetch('name') }
+          assert_equal %w[hk jp tw sg us kr eu others], group_names.last(8)
+          refute group_names.any? { |name| name.end_with?('_auto') }
+          assert_equal ['my_proxy'], proxy_group(config, 'all_nodes').fetch('proxies')
+
+          REGION_GROUP_NAMES.each do |name|
+            group = proxy_group(config, name)
+            assert_equal 'url-test', group.fetch('type'), name
+            assert_equal 'REJECT', group.fetch('empty-fallback'), name
+            assert_equal ['remote_provider'], group.fetch('use'), name
+            refute group.key?('proxies'), name
+            refute group.key?('default-selected'), name
+            refute group.fetch('hidden', false), name
+            refute group.fetch('include-all', false), name
+            refute group.fetch('include-all-proxies', false), name
+          end
+          health_check = config.fetch('proxy-providers').fetch('remote_provider').fetch('health-check')
+          assert_equal false, health_check.fetch('lazy')
+        end
+      end
     end
   end
 
-  def test_handwritten_only_structure_routes_provider_groups_through_my_proxy
+  def test_handwritten_only_structure_keeps_nodes_out_of_regions
     values = empty_provider_values([handwritten_proxy])
 
     with_generated_config(values) do |config, _output_path|
@@ -226,13 +243,10 @@ class GenerateMihomoConfigTest < Minitest::Test
 
       REGION_GROUP_NAMES.each do |name|
         group = proxy_group(config, name)
-        automatic_group = proxy_group(config, "#{name}_auto")
-        assert_equal 'select', group.fetch('type'), name
-        assert_equal ["#{name}_auto", 'my_proxy'], group.fetch('proxies'), name
-        assert_equal 'url-test', automatic_group.fetch('type'), name
-        assert_equal ['my_proxy'], automatic_group.fetch('proxies'), name
+        assert_equal 'url-test', group.fetch('type'), name
+        assert_equal ['REJECT'], group.fetch('proxies'), name
+        assert_equal 'REJECT', group.fetch('empty-fallback'), name
         refute group.key?('use'), name
-        refute automatic_group.key?('use'), name
       end
 
       assert_equal ['my_proxy'], proxy_group(config, 'all_nodes').fetch('proxies')
@@ -240,7 +254,7 @@ class GenerateMihomoConfigTest < Minitest::Test
     end
   end
 
-  def test_direct_only_structure_uses_my_proxy_fallback
+  def test_direct_only_structure_does_not_allow_regions_to_fall_back_to_direct
     values = empty_provider_values([])
 
     with_generated_config(values) do |config, _output_path|
@@ -248,13 +262,14 @@ class GenerateMihomoConfigTest < Minitest::Test
 
       REGION_GROUP_NAMES.each do |name|
         group = proxy_group(config, name)
-        automatic_group = proxy_group(config, "#{name}_auto")
-        assert_equal 'select', group.fetch('type'), name
-        assert_equal ["#{name}_auto", 'my_proxy'], group.fetch('proxies'), name
-        assert_equal 'url-test', automatic_group.fetch('type'), name
-        assert_equal ['my_proxy'], automatic_group.fetch('proxies'), name
+        assert_equal 'url-test', group.fetch('type'), name
+        assert_equal ['REJECT'], group.fetch('proxies'), name
+        assert_equal 'REJECT', group.fetch('empty-fallback'), name
+        assert_equal 'https://www.gstatic.com/generate_204', group.fetch('url'), name
+        assert_equal 300, group.fetch('interval'), name
+        assert_equal 50, group.fetch('tolerance'), name
+        assert_equal false, group.fetch('lazy'), name
         refute group.key?('use'), name
-        refute automatic_group.key?('use'), name
       end
 
       assert_equal ['my_proxy'], proxy_group(config, 'all_nodes').fetch('proxies')
@@ -269,30 +284,26 @@ class GenerateMihomoConfigTest < Minitest::Test
     end
   end
 
-  def test_each_region_has_a_configurable_url_test_group
+  def test_each_region_and_provider_use_configured_health_checks
     url_test = {
       'url' => 'https://example.com/generate_204',
       'interval' => 120,
       'tolerance' => 15,
-      'lazy' => false
+      'lazy' => true
     }
     values = provider_present_values.merge('url_test' => url_test)
 
     with_generated_config(values) do |config, _output_path|
       REGION_GROUP_NAMES.each do |name|
         group = proxy_group(config, name)
-        automatic_group = proxy_group(config, "#{name}_auto")
-
-        assert_equal 'select', group.fetch('type'), name
-        assert_equal "#{name}_auto", group.fetch('proxies').first, name
-        assert_equal "#{name}_auto", group.fetch('default-selected'), name
+        assert_equal 'url-test', group.fetch('type'), name
+        assert_equal url_test, group.slice(*url_test.keys), name
         assert_equal ['remote_provider'], group.fetch('use'), name
-        assert_equal 'url-test', automatic_group.fetch('type'), name
-        assert_equal true, automatic_group.fetch('hidden'), name
-        assert_equal url_test, automatic_group.slice(*url_test.keys), name
-        assert_equal ['remote_provider'], automatic_group.fetch('use'), name
-        refute automatic_group.key?('proxies'), name
+        refute group.key?('proxies'), name
       end
+      health_check = config.fetch('proxy-providers').fetch('remote_provider').fetch('health-check')
+      assert_equal true, health_check.fetch('enable')
+      assert_equal url_test.slice('url', 'interval', 'lazy'), health_check.slice('url', 'interval', 'lazy')
     end
   end
 
@@ -302,16 +313,7 @@ class GenerateMihomoConfigTest < Minitest::Test
         { 'name' => 'custom_primary', 'type' => 'select', 'proxies' => ['DIRECT'] }
       ]
     )
-    expected_region_tail = %w[
-      hk hk_auto
-      jp jp_auto
-      tw tw_auto
-      sg sg_auto
-      us us_auto
-      kr kr_auto
-      eu eu_auto
-      others others_auto
-    ]
+    expected_region_tail = %w[hk jp tw sg us kr eu others]
 
     with_generated_config(values) do |config, _output_path|
       group_names = config.fetch('proxy-groups').map { |group| group.fetch('name') }

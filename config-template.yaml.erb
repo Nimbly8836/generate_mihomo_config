@@ -352,9 +352,10 @@ provider_defaults: &provider_defaults
     # 是否启用健康检查
     enable: true
     # 健康检查地址
-    url: "https://www.gstatic.com/generate_204"
-    # 健康检查间隔，单位秒
-    interval: 300
+    url: <%= yaml_scalar(url_test.fetch('url')) %>
+    # 与地区组共用测速参数；默认持续检查，不等待组被使用。
+    interval: <%= yaml_scalar(url_test.fetch('interval')) %>
+    lazy: <%= yaml_scalar(url_test.fetch('lazy')) %>
 
 # 使用订阅节点的策略组默认参数
 provider_use_defaults: &provider_use_defaults
@@ -374,13 +375,14 @@ provider_use_defaults: &provider_use_defaults
 regional_url_test_defaults: &regional_url_test_defaults
   type: url-test
 <%= render_hash(url_test, indent: 2) -%>
+  # 过滤后无节点时拒绝连接，避免 Mihomo 默认的空组直连行为。
+  empty-fallback: REJECT
 <% if provider_names.empty? -%>
-  # No subscription: my_proxy itself falls back to DIRECT when necessary.
+  # 无订阅时保留合法的组定义，不借道 my_proxy 或 DIRECT。
   proxies:
-    - my_proxy
+    - REJECT
 <% else -%>
-  # With providers present, only filtered provider nodes enter the region group.
-  # This prevents DIRECT or an unrelated local node from winning the url-test.
+  # 只对匹配地区的订阅节点测速，不混入手写节点或其他策略组。
   use:
 <% provider_names.each do |name| -%>
     - <%= yaml_scalar(name) %>
@@ -606,112 +608,44 @@ proxy-groups:
     proxies:
       - china
 
-  # 所有订阅节点和全局自动测速。
+  # 所有订阅节点及手写节点入口，保留手动选择。
   - name: all_nodes
     <<: *provider_use_defaults
 
-
-  # 地区组支持手动选择；默认项是隐藏的 url-test 自动组。
+  # 地区组直接自动测速与切换，不再嵌套 select / 隐藏 auto 组。
   - name: hk
-    <<: *provider_use_defaults
-    default-selected: hk_auto
-    proxies: [hk_auto, my_proxy]
-    filter: "(?i)(🇭🇰|香港|港(?![澳台])|(^|[^a-z])(hk|hkg|hong[ _-]?kong)([^a-z]|$))"
-    exclude-filter: "(?i)(澳門|澳门|macao|macau)"
-
-  - name: hk_auto
     <<: *regional_url_test_defaults
-    hidden: true
     filter: "(?i)(🇭🇰|香港|港(?![澳台])|(^|[^a-z])(hk|hkg|hong[ _-]?kong)([^a-z]|$))"
     exclude-filter: "(?i)(澳門|澳门|macao|macau)"
-
 
   - name: jp
-    <<: *provider_use_defaults
-    default-selected: jp_auto
-    proxies: [jp_auto, my_proxy]
-    filter: "(?i)(🇯🇵|日本|(^|[^a-z])(jp|jpn|japan|tokyo|osaka)([^a-z]|$))"
-
-  - name: jp_auto
     <<: *regional_url_test_defaults
-    hidden: true
     filter: "(?i)(🇯🇵|日本|(^|[^a-z])(jp|jpn|japan|tokyo|osaka)([^a-z]|$))"
-
 
   - name: tw
-    <<: *provider_use_defaults
-    default-selected: tw_auto
-    proxies: [tw_auto, my_proxy]
-    filter: "(?i)(🇹🇼|台湾|台灣|(^|[^a-z])(tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
-    exclude-filter: "(?i)(hong[ _-]?kong|hk|hkg|macau|macao)"
-
-  - name: tw_auto
     <<: *regional_url_test_defaults
-    hidden: true
     filter: "(?i)(🇹🇼|台湾|台灣|(^|[^a-z])(tw|twn|tpe|taipei|taiwan)([^a-z]|$))"
     exclude-filter: "(?i)(hong[ _-]?kong|hk|hkg|macau|macao)"
-
 
   - name: sg
-    <<: *provider_use_defaults
-    default-selected: sg_auto
-    proxies: [sg_auto, my_proxy]
-    filter: "(?i)(🇸🇬|新加坡|狮城|獅城|(^|[^a-z])(sg|sgp|singapore)([^a-z]|$))"
-
-  - name: sg_auto
     <<: *regional_url_test_defaults
-    hidden: true
     filter: "(?i)(🇸🇬|新加坡|狮城|獅城|(^|[^a-z])(sg|sgp|singapore)([^a-z]|$))"
-
 
   - name: us
-    <<: *provider_use_defaults
-    default-selected: us_auto
-    proxies: [us_auto, my_proxy]
-    filter: "(?i)(🇺🇸|美国|美國|(^|[^a-z])(us|usa|united[ _-]?states|america)([^a-z]|$)|los[ _-]?angeles|san[ _-]?jose|new[ _-]?york|seattle|chicago)"
-    exclude-filter: "(?i)(australia|au|aus)"
-
-  - name: us_auto
     <<: *regional_url_test_defaults
-    hidden: true
     filter: "(?i)(🇺🇸|美国|美國|(^|[^a-z])(us|usa|united[ _-]?states|america)([^a-z]|$)|los[ _-]?angeles|san[ _-]?jose|new[ _-]?york|seattle|chicago)"
     exclude-filter: "(?i)(australia|au|aus)"
-
 
   - name: kr
-    <<: *provider_use_defaults
-    default-selected: kr_auto
-    proxies: [kr_auto, my_proxy]
-    filter: "(?i)(🇰🇷|韩国|韓國|首尔|首爾|(^|[^a-z])(kr|kor|korea|seoul)([^a-z]|$))"
-
-  - name: kr_auto
     <<: *regional_url_test_defaults
-    hidden: true
     filter: "(?i)(🇰🇷|韩国|韓國|首尔|首爾|(^|[^a-z])(kr|kor|korea|seoul)([^a-z]|$))"
-
 
   - name: eu
-    <<: *provider_use_defaults
-    default-selected: eu_auto
-    proxies: [eu_auto, my_proxy]
-    filter: "(?i)(🇬🇧|🇩🇪|🇫🇷|🇳🇱|🇮🇹|🇪🇸|🇸🇪|🇨🇭|🇦🇹|🇵🇱|🇷🇺|欧洲|歐洲|英国|英國|德国|德國|法国|法國|荷兰|荷蘭|意大利|西班牙|瑞典|瑞士|奥地利|奧地利|波兰|波蘭|俄罗斯|俄羅斯|(^|[^a-z])(eu|europe|gb|gbr|uk|united[ _-]?kingdom|england|london|de|deu|germany|berlin|fr|fra|france|paris|nl|nld|netherlands|it|ita|italy|es|esp|spain|se|swe|sweden|ch|che|switzerland|at|aut|austria|pl|pol|poland|ru|rus|russia)([^a-z]|$))"
-
-  - name: eu_auto
     <<: *regional_url_test_defaults
-    hidden: true
     filter: "(?i)(🇬🇧|🇩🇪|🇫🇷|🇳🇱|🇮🇹|🇪🇸|🇸🇪|🇨🇭|🇦🇹|🇵🇱|🇷🇺|欧洲|歐洲|英国|英國|德国|德國|法国|法國|荷兰|荷蘭|意大利|西班牙|瑞典|瑞士|奥地利|奧地利|波兰|波蘭|俄罗斯|俄羅斯|(^|[^a-z])(eu|europe|gb|gbr|uk|united[ _-]?kingdom|england|london|de|deu|germany|berlin|fr|fra|france|paris|nl|nld|netherlands|it|ita|italy|es|esp|spain|se|swe|sweden|ch|che|switzerland|at|aut|austria|pl|pol|poland|ru|rus|russia)([^a-z]|$))"
-
 
   - name: others
-    <<: *provider_use_defaults
-    default-selected: others_auto
-    proxies: [others_auto, my_proxy]
-    filter: ".+"
-    exclude-filter: "(?i)(🇭🇰|🇹🇼|🇯🇵|🇺🇸|🇸🇬|🇰🇷|🇬🇧|🇩🇪|🇫🇷|🇳🇱|🇮🇹|🇪🇸|🇸🇪|🇨🇭|🇦🇹|🇵🇱|🇷🇺|🇨🇳|香港|台湾|台灣|日本|美国|美國|新加坡|韩国|韓國|欧洲|歐洲|中国|中國|(^|[^a-z])(hk|hkg|tw|twn|jp|jpn|us|usa|sg|sgp|kr|kor|eu|europe|gb|gbr|uk|de|deu|fr|fra|nl|nld|it|ita|es|esp|se|swe|ch|che|at|aut|pl|pol|ru|rus|cn|chn|china)([^a-z]|$))"
-
-  - name: others_auto
     <<: *regional_url_test_defaults
-    hidden: true
     filter: ".+"
     exclude-filter: "(?i)(🇭🇰|🇹🇼|🇯🇵|🇺🇸|🇸🇬|🇰🇷|🇬🇧|🇩🇪|🇫🇷|🇳🇱|🇮🇹|🇪🇸|🇸🇪|🇨🇭|🇦🇹|🇵🇱|🇷🇺|🇨🇳|香港|台湾|台灣|日本|美国|美國|新加坡|韩国|韓國|欧洲|歐洲|中国|中國|(^|[^a-z])(hk|hkg|tw|twn|jp|jpn|us|usa|sg|sgp|kr|kor|eu|europe|gb|gbr|uk|de|deu|fr|fra|nl|nld|it|ita|es|esp|se|swe|ch|che|at|aut|pl|pol|ru|rus|cn|chn|china)([^a-z]|$))"
 

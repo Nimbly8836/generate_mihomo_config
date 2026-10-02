@@ -170,7 +170,7 @@ class TemplateContext
     'url' => 'https://www.gstatic.com/generate_204',
     'interval' => 300,
     'tolerance' => 50,
-    'lazy' => true
+    'lazy' => false
   }.freeze
 
   attr_reader :proxy_providers, :local_proxies, :local_proxy_groups, :local_rules, :proxy_rules,
