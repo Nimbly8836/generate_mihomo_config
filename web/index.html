@@ -197,7 +197,7 @@
         <label>插入其他内置组<textarea name="group_rules" aria-describedby="group-help" placeholder="chat: DOMAIN-SUFFIX,t.me&#10;media: GEOSITE,youtube&#10;ai: DOMAIN-SUFFIX,example.ai"></textarea></label>
         <p class="hint">每行：组名: 类型,匹配值。simple 模式使用 chat、ai 等父组；telegram、openai 等详细组只在 detailed 模式可用。</p>
         <p id="group-help" class="hint callout" aria-live="polite"></p>
-        <details><summary>地区测速组与特殊目标</summary><p class="hint">hk、jp 等地区组直接自动测速与切换，不包含 my_proxy；没有匹配节点时拒绝连接。DIRECT、REJECT 是内置动作，也可以作为规则目标。</p></details>
+        <details><summary>隐藏自动测速组与特殊目标</summary><p id="auto-group-help" class="hint"></p><p class="hint">hk、jp 等地区组默认选择对应的隐藏 auto 组，也可手动选择本地区节点。地区组和 auto 组均不包含 my_proxy / DIRECT，无匹配节点时拒绝连接。DIRECT、REJECT 仍可作为规则目标。</p></details>
       </section>
       <section id="external-rules">
         <header class="section-header"><div><h2>外部规则集</h2><p class="hint">添加规则直链，自动生成 rule-providers 和 RULE-SET。</p></div></header>
@@ -298,8 +298,9 @@
     }, true);
     let config = '', mode = localStorage.getItem('mihomo-mode') || 'form';
     const regions = ['hk', 'jp', 'tw', 'sg', 'us', 'kr', 'eu', 'others'];
-    const baseGroups = ['default', 'proxy', 'my_proxy', 'ad_block', 'ai', 'game', 'media', 'chat', 'dev', 'cloud', 'download', 'adult', 'china', 'other', 'final', 'domestic', 'all_nodes', ...regions];
-    const detailedGroups = ['openai', 'claude', 'gemini', 'copilot', 'steam', 'epic', 'blizzard', 'ps', 'xbox', 'nintendo', 'youtube', 'netflix', 'disney', 'prime', 'hbo', 'twitch', 'spotify', 'telegram', 'discord', 'whatsapp', 'x', 'github', 'gitlab', 'docker', 'google', 'apple', 'microsoft', 'onedrive'];
+    const baseGroups = ['default', 'proxy', 'my_proxy', 'ad_block', 'ai', 'game', 'media', 'chat', 'dev', 'cloud', 'apple', 'download', 'adult', 'china', 'other', 'final', 'domestic', 'all_nodes', ...regions];
+    const detailedGroups = ['openai', 'claude', 'gemini', 'copilot', 'steam', 'epic', 'blizzard', 'ps', 'xbox', 'nintendo', 'youtube', 'netflix', 'disney', 'prime', 'hbo', 'twitch', 'spotify', 'telegram', 'discord', 'whatsapp', 'x', 'github', 'gitlab', 'docker', 'google', 'microsoft', 'onedrive'];
+    const autoGroups = regions.map(region => `${region}_auto`);
     const lines = text => String(text || '').split('\n').map(x => x.trim()).filter(Boolean);
     const textAt = (data, key, index) => String(data.getAll(key)[index] || '').trim();
     const validName = name => /^[a-z][a-z0-9_-]*$/.test(name);
@@ -337,7 +338,7 @@
 
     function targetNames(data) {
       const wgGroups = data.getAll('wg_name').map(name => String(name).trim()).filter(validName).map(name => `wg_${name}`);
-      return [...baseGroups, ...(data.get('group_mode') === 'detailed' ? detailedGroups : []), 'DIRECT', 'REJECT', ...wgGroups];
+      return [...baseGroups, ...(data.get('group_mode') === 'detailed' ? detailedGroups : []), ...autoGroups, 'DIRECT', 'REJECT', ...wgGroups];
     }
     function updateGroupHelp() {
       const data = new FormData(form);
@@ -345,6 +346,7 @@
       const visible = [...baseGroups, ...(detailed ? detailedGroups : [])];
       const wgGroups = targetNames(data).filter(name => name.startsWith('wg_'));
       document.querySelector('#group-help').textContent = `当前 ${detailed ? 'detailed' : 'simple'} 内置组：${visible.join('、')}` + (wgGroups.length ? `。本表单 WG 组：${wgGroups.join('、')}` : '');
+      document.querySelector('#auto-group-help').textContent = autoGroups.join('、');
       const options = targetNames(data).map(name => { const option = document.createElement('option'); option.value = name; return option; });
       document.querySelector('#policy-targets').replaceChildren(...options);
     }

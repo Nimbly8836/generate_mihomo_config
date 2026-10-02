@@ -90,7 +90,7 @@ proxy_rules:
 direct_rules:
   - DOMAIN-SUFFIX,example-direct.test
 
-# 其他内置组按组名追加：proxy、ai、chat、media 等；telegram 仅 detailed 模式可用。
+# 其他内置组按组名追加：proxy、ai、chat、media、apple 等；telegram 仅 detailed 模式可用。
 group_rules:
   chat:
     - DOMAIN-SUFFIX,example-telegram.test
@@ -112,8 +112,8 @@ custom_rule_providers:
 local_rules:
   - DOMAIN-SUFFIX,example.com,work
 
-# 地区组直接使用 url-test，不生成隐藏的 *_auto 子组。
-# 地区组只使用订阅节点；无匹配节点时 REJECT，不回退 my_proxy / DIRECT。
+# 地区组默认选择隐藏的 *_auto 子组，也可手动选择本地区订阅节点。
+# auto 只测速订阅节点，不引用父组；无匹配节点时 REJECT，不回退 my_proxy / DIRECT。
 url_test:
   url: https://www.gstatic.com/generate_204
   interval: 300

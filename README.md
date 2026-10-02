@@ -345,7 +345,7 @@ CLI、Web 的 WG 表单 / 完整 YAML 编辑模式和 REST API 的 `values` 输�
 
 ### simple
 
-只使用简单分类组：
+使用简单分类组，并保留独立的 Apple 分组：
 
 ```text
 proxy → region / all_nodes → node
@@ -355,6 +355,7 @@ media → proxy
 chat → proxy
 dev → proxy
 cloud → proxy
+apple → cloud → proxy
 download → proxy
 adult → proxy
 china → DIRECT
@@ -382,11 +383,15 @@ github → dev → proxy → ...
 - Media：`youtube`、`netflix`、`disney`、`prime`、`hbo`、`twitch`、`spotify`
 - Chat：`telegram`、`discord`、`whatsapp`、`x`
 - Dev：`github`、`gitlab`、`docker`
-- Cloud：`google`、`apple`、`microsoft`、`onedrive`
+- Cloud：`google`、`apple`、`microsoft`、`onedrive`（`apple` 在 simple 模式中也保留）
+
+### Apple 独立分组
+
+`apple` 在 simple / detailed 两种模式中均为可见的 `select` 组，Apple 和 Apple 中国区规则集（`apple_domain`、`apple_cn_domain`）均指向它。默认跟随 `cloud`，保持原有出口行为；也可单独选择 `DIRECT`、`proxy` 或地区组。例如选择 `hk` 后，默认由 `hk_auto` 自动选择香港节点。
 
 ## 地区组
 
-所有地区组直接使用 `type: url-test`，在匹配地区的订阅节点中自动测速与切换：
+所有地区组使用 `select`，默认选择对应的隐藏 `url-test` 自动组，也可手动选择匹配地区的订阅节点：
 
 ```text
 hk
@@ -399,13 +404,15 @@ eu
 others
 ```
 
-地区组显示为 `jp`、`hk` 等名称，不再生成 `jp_auto` 等隐藏子组，也不包含 `my_proxy`、`DIRECT` 或手写节点。主分类组仍可手动选择地区；要手动选择具体节点，可使用 `all_nodes` / `my_proxy`。
+地区组显示为 `jp`、`hk` 等名称，每组的首项和默认选择是 `jp_auto`、`hk_auto` 等自动组。自动组设置 `hidden: true`，不单独占用面板的组列表，但仍可在对应地区组中选中。选择具体节点后会固定使用该节点，要恢复自动切换请重新选中对应的 `*_auto`。
 
-默认每 300 秒重新测速，`lazy: false` 保持持续健康检查；测速发现当前节点不可用时会选择其他可用节点，正常情况下新节点需快超过 `tolerance`（默认 50ms）才切换。切换依赖健康检查结果，不保证业务请求无缝恢复，也不会跨地区切换。`url_test` 可覆盖这些参数，其中 `url`、`interval`、`lazy` 同时用于订阅默认的 `health-check`；订阅自己显式配置的 `health-check` 仍优先。
+地区组和自动组均不包含 `my_proxy`、`DIRECT` 或手写节点；自动组只引用订阅节点，不引用地区父组或其他策略组，避免循环引用和绕到直连。手写节点仍通过独立的 `my_proxy` 使用。
 
-无订阅时地区组使用 `REJECT`；订阅中没有匹配节点时通过 `empty-fallback: REJECT` 拒绝连接，避免空组隐式直连。需要支持 `empty-fallback` 的 Mihomo 核心，建议升级到最新稳定版。
+自动组默认每 300 秒重新测速，`lazy: false` 保持持续健康检查；测速发现当前节点不可用时会选择其他可用节点，正常情况下新节点需快超过 `tolerance`（默认 50ms）才切换。切换依赖健康检查结果，不保证业务请求无缝恢复，也不会跨地区切换。`url_test` 可覆盖这些参数，其中 `url`、`interval`、`lazy` 同时用于订阅默认的 `health-check`；订阅自己显式配置的 `health-check` 仍优先。
 
-升级后请重新生成并重载配置，将自定义规则中的 `jp_auto` / `hk_auto` 等旧目标改为 `jp` / `hk`。如面板保留了手动固定节点，请清除该选择以恢复自动择优。
+无订阅时自动组只包含 `REJECT`；订阅中没有匹配节点时通过 `empty-fallback: REJECT` 拒绝连接，避免空组隐式直连。需要支持 `empty-fallback` 的 Mihomo 核心，建议升级到最新稳定版。
+
+升级后请重新生成并重载配置。面板可能恢复之前缓存的选择，而不是采用新的默认项；如需自动切换，请确认地区组选择的是对应的 `*_auto`。
 
 `eu` 覆盖英国、德国、法国、荷兰、意大利、西班牙、瑞典、瑞士、奥地利、波兰、俄罗斯等常见欧洲节点，并排除已单独处理的亚洲、美国和中国节点。
 

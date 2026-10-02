@@ -609,24 +609,51 @@ test("group hint and validation follow simple versus detailed mode", async () =>
   });
 });
 
-test("regions are suggested directly without removed auto groups", () => {
-  const { element } = page(false);
-  const targets = element("#policy-targets").children.map(
-    (option) => option.value,
-  );
-  assert.ok(targets.includes("hk"));
-  assert.ok(targets.includes("eu"));
-  assert.ok(!targets.some((name) => name.endsWith("_auto")));
-  assert.doesNotMatch(html, /auto-group-help|隐藏自动测速组/);
+test("Apple is offered and accepted as a rule target in both modes", async () => {
+  for (const group_mode of ["simple", "detailed"]) {
+    const { element, requests } = page(false, {
+      group_mode,
+      group_rules: "apple: DOMAIN-SUFFIX,example.com",
+      rule_name: ["custom_apple"],
+      rule_url: ["https://example.com/apple.mrs"],
+      rule_behavior: ["domain"],
+      rule_format: ["mrs"],
+      rule_policy: ["apple"],
+    });
+    assert.match(element("#group-help").textContent, /apple/);
+    const targets = element("#policy-targets").children.map(
+      (option) => option.value,
+    );
+    assert.equal(targets.filter((name) => name === "apple").length, 1);
+    await element("#form").onsubmit({ preventDefault() {} });
+    assert.equal(requests.length, 1);
+    assert.deepEqual(requests[0].values.group_rules, {
+      apple: ["DOMAIN-SUFFIX,example.com"],
+    });
+    assert.equal(requests[0].values.custom_rule_providers[0].policy, "apple");
+  }
 });
 
-test("removed auto groups are rejected as form rule targets", async () => {
+test("hidden auto groups have separate help and are valid rule targets", async () => {
   const { element, requests } = page(false, {
     group_rules: "hk_auto: DOMAIN-SUFFIX,example.com",
   });
+  const targets = element("#policy-targets").children.map(
+    (option) => option.value,
+  );
+  for (const region of ["hk", "jp", "tw", "sg", "us", "kr", "eu", "others"]) {
+    assert.ok(targets.includes(region));
+    assert.ok(targets.includes(`${region}_auto`));
+    assert.ok(
+      element("#auto-group-help").textContent.includes(`${region}_auto`),
+    );
+  }
+  assert.doesNotMatch(element("#group-help").textContent, /_auto/);
   await element("#form").onsubmit({ preventDefault() {} });
-  assert.equal(requests.length, 0);
-  assert.match(element("#status").textContent, /分组/);
+  assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0].values.group_rules, {
+    hk_auto: ["DOMAIN-SUFFIX,example.com"],
+  });
 });
 
 test("HTML name patterns compile with the browser Unicode-sets flag", () => {
