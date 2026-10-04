@@ -9,6 +9,10 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: "4567"
+      DATA_DIR: /data
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://127.0.0.1:${WEB_PORT:-4567}}
+    volumes:
+      - subscription-data:/data
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m,mode=1777
@@ -17,3 +21,6 @@ services:
     security_opt:
       - no-new-privileges:true
     pids_limit: 128
+
+volumes:
+  subscription-data:

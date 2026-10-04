@@ -7,6 +7,10 @@ require 'psych'
 require 'securerandom'
 require 'socket'
 require 'tmpdir'
+require_relative 'lib/subscription_store'
+require_relative 'lib/web_security'
+
+File.umask(0o077)
 
 ROOT = File.expand_path(__dir__)
 WEB_ROOT = File.join(ROOT, 'web')
@@ -26,8 +30,12 @@ PUBLIC_FILES = {
 }.freeze
 
 def http_response(status, type, body, extra_headers = {})
-  reason = { 200 => 'OK', 201 => 'Created', 400 => 'Bad Request', 404 => 'Not Found', 405 => 'Method Not Allowed',
-             422 => 'Unprocessable Entity' }.fetch(status)
+  reason = { 200 => 'OK', 201 => 'Created', 400 => 'Bad Request', 401 => 'Unauthorized', 403 => 'Forbidden',
+             404 => 'Not Found', 405 => 'Method Not Allowed', 408 => 'Request Timeout', 409 => 'Conflict',
+             413 => 'Content Too Large', 422 => 'Unprocessable Entity', 429 => 'Too Many Requests',
+             431 => 'Request Header Fields Too Large', 503 => 'Service Unavailable' }.fetch(status)
+  extra_headers = { 'Cache-Control' => 'private, no-store', 'Referrer-Policy' => 'no-referrer',
+                    'X-Content-Type-Options' => 'nosniff' }.merge(extra_headers)
   headers = extra_headers.map { |key, value| "#{key}: #{value}" }.join("\r\n")
   headers = "#{headers}\r\n" unless headers.empty?
   "HTTP/1.1 #{status} #{reason}\r\nContent-Type: #{type}\r\n#{headers}Content-Length: #{body.bytesize}\r\nConnection: close\r\n\r\n#{body}"
@@ -49,13 +57,23 @@ def generate_config(values)
     output_path = File.join(directory, 'config.yaml')
     File.write(values_path, values_yaml)
     stdout, stderr, status = Open3.capture3(RbConfig.ruby, GENERATOR, '--values', values_path, '--output', output_path)
-    raise "生成失败：#{stderr.empty? ? stdout : stderr}" unless status.success?
+    raise WebError.new(422, '生成失败，请检查配置参数') unless status.success?
+    raise WebError.new(422, '生成的配置过大') if File.size(output_path) > SubscriptionStore::MAX_CONFIG
 
-    { 'config' => File.read(output_path), 'message' => stdout.strip }
+    { 'config' => File.read(output_path), 'message' => '生成成功' }
   end
 end
 
 generated_configs = {}
+security = WebSecurity.new(ENV.fetch('PUBLIC_BASE_URL', "http://127.0.0.1:#{PORT}"))
+begin
+  subscriptions = SubscriptionStore.new(ENV.fetch('DATA_DIR', File.join(ROOT, 'data')))
+rescue StandardError
+  abort '订阅存储不可用；请检查权限或从备份恢复（不会自动清空）。'
+end
+public_summary = lambda do |row|
+  row.reject { |key, _| key == 'token' }.merge('url' => "#{security.base_url}/s/#{row.fetch('token')}")
+end
 
 server = TCPServer.new(HOST, PORT)
 puts "Mihomo Web UI: http://#{HOST}:#{PORT}"
@@ -76,19 +94,43 @@ end
 loop do
   socket = server.accept
   begin
-    request_line = socket.gets&.strip
-    method, path, = request_line.to_s.split(' ')
-    headers = {}
-    while (line = socket.gets)
-      line = line.strip
-      break if line.empty?
+    response = nil
+    security.rate!(socket.peeraddr[3])
+    method, path, headers, body = security.read_request(socket)
+    session = security.session(headers)
+    payload = lambda do
+      value = JSON.parse(body)
+      raise WebError.new(400, '需要 JSON 对象') unless value.is_a?(Hash)
 
-      key, value = line.split(':', 2)
-      headers[key.downcase] = value.to_s.strip if key
+      value
     end
-    body = socket.read(Integer(headers.fetch('content-length', '0')))
 
-    response = if method == 'GET' && path == '/'
+    response = if method == 'POST' && path == '/api/identity'
+                 payload.call
+                 new_session, recovery = subscriptions.identity(session)
+                 cookie = new_session ? { 'Set-Cookie' => security.cookie(new_session) } : {}
+                 json_response.call(200, { 'recovery_code' => recovery }, cookie)
+               elsif method == 'POST' && path == '/api/identity/recover'
+                 new_session, recovery = subscriptions.recover(payload.call['recovery_code'])
+                 json_response.call(200, { 'recovery_code' => recovery }, 'Set-Cookie' => security.cookie(new_session))
+               elsif method == 'POST' && path == '/api/identity/recovery'
+                 payload.call
+                 json_response.call(200, 'recovery_code' => subscriptions.recovery(session))
+               elsif method == 'GET' && path == '/api/subscriptions'
+                 json_response.call(200, 'subscriptions' => subscriptions.list(session).map { |row| public_summary.call(row) })
+               elsif method == 'POST' && path == '/api/subscriptions'
+                 row = subscriptions.change(session, :create, nil, payload.call['config'])
+                 json_response.call(201, public_summary.call(row))
+               elsif (match = %r{\A/api/subscriptions/([a-f0-9]{64})(/reset)?\z}.match(path))
+                 action = { ['PUT', nil] => :update, ['DELETE', nil] => :delete, ['POST', '/reset'] => :reset }[[method, match[2]]]
+                 raise WebError.new(405, '请求方法不支持') unless action
+
+                 row = subscriptions.change(session, action, match[1], payload.call['config'])
+                 json_response.call(200, action == :delete ? row : public_summary.call(row))
+               elsif method == 'GET' && (match = %r{\A/s/([a-f0-9]{64})\z}.match(path))
+                 http_response(200, 'application/yaml; charset=utf-8', subscriptions.read(match[1]),
+                               'Content-Disposition' => 'attachment; filename="config.yaml"')
+               elsif method == 'GET' && path == '/'
                  http_response(200, 'text/html; charset=utf-8', File.read(File.join(WEB_ROOT, 'index.html')))
                elsif method == 'GET' && PUBLIC_FILES.key?(path)
                  type, file = PUBLIC_FILES.fetch(path)
@@ -98,6 +140,7 @@ loop do
                elsif method == 'POST' && path == '/api/v1/configs'
                  result = generate_config(JSON.parse(body).fetch('values'))
                  id = SecureRandom.hex(12)
+                 generated_configs.shift while generated_configs.size >= 32
                  generated_configs[id] = result
                  json_response.call(201, result.merge('id' => id, 'download_url' => "/api/v1/configs/#{id}/download"),
                                     'Location' => "/api/v1/configs/#{id}")
@@ -118,12 +161,19 @@ loop do
                else
                  http_response(404, 'text/plain; charset=utf-8', 'Not Found')
                end
-  rescue JSON::ParserError, KeyError, ArgumentError => e
-    response = http_response(400, 'application/json; charset=utf-8', JSON.generate('error' => e.message))
-  rescue StandardError => e
-    response = http_response(422, 'application/json; charset=utf-8', JSON.generate('error' => e.message))
+  rescue WebError => e
+    response = json_response.call(e.status, 'error' => e.message)
+  rescue JSON::ParserError, KeyError, ArgumentError
+    response = json_response.call(400, 'error' => '请求参数无效')
+  rescue StandardError
+    response = json_response.call(503, 'error' => '服务暂不可用，请检查存储或稍后重试')
   ensure
-    socket.write(response) if response
-    socket.close
+    begin
+      security.write_response(socket, response) if response
+    rescue IOError, SystemCallError
+      # Disconnected clients do not affect the next request; never log secrets.
+    ensure
+      socket.close
+    end
   end
 end

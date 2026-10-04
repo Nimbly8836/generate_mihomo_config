@@ -40,6 +40,22 @@ HOST=127.0.0.1 PORT=4567 ruby web_server.rb
 勾选后生成 `experimental.dialer-ip4p-convert: true`，不自动开启 IPv6 或修改 WG 节点；
 需要运行配置的 Mihomo 核心支持这个字段。开关只影响表单模式，YAML 模式仍以编辑内容为准。
 
+### 发布订阅与身份恢复
+
+生成成功后，点击 **发布订阅** 才会把本次预览的完整 Mihomo YAML 保存到服务器；不会重新渲染或更换其中的 Web 密钥。
+返回的 `/s/<随机令牌>` 是完整配置订阅，**不是 `proxy-providers` 的节点列表**。把它导入支持完整配置订阅的客户端。
+链接持有者可以读取其中的所有密码、订阅地址和 WG 私钥；链接不具备任何管理权限。不要公开分享。
+
+- **我的订阅**：浏览器自动取得随机身份（HttpOnly Cookie，无注册、密码或指纹），只能管理自己的订阅。
+- **用最新生成配置更新**：先重新生成并检查预览，再选择已有订阅更新，URL 保持不变。不是保存当前未生成的表单。
+- **重置链接 / 删除订阅**：确认后旧 URL 立即返回 404。已下载的配置无法远程撤回。
+- 首次取得身份时显示恢复码，请在“我的订阅 / 恢复码”中复制并离线保管。后端只存恢复码与会话凭据的 SHA-256 摘要，无法再次导出旧码。
+- **生成新恢复码** 立即废弃旧码；**导入恢复码** 为一次性恢复，注销此前的浏览器会话并同时换发新会话和新恢复码。请保存新码；需要切换身份时先备份当前身份的恢复码。
+- Cookie 和恢复码同时丢失，便无法再管理原订阅；服务没有管理员找回入口。Cookie 默认保留一年（浏览器仍可能提前清除）。
+
+配置快照、订阅令牌、恢复码不写入 localStorage。恢复码只在当前页面内存中显示；原有 YAML 编辑模式仍会在生成时保存**输入的 values**，共享设备请勿使用。
+订阅永久保留到主动删除或存储丢失；身份不会自动清理，以免破坏恢复能力。
+
 ### YAML 编辑器与参考配置
 
 “编辑配置文件”模式提供 YAML 语法高亮和行号，长行横向滚动，不与真实换行混淆。
@@ -119,7 +135,8 @@ docker compose down
 ```
 
 Compose 默认只发布到宿主机的 `127.0.0.1`，并使用只读根文件系统、64 MiB `/tmp` 临时内存目录、
-禁用额外 Linux capabilities。无需挂载私人配置或源代码。
+禁用额外 Linux capabilities。订阅通过命名卷 `subscription-data` 持久化到 `/data`（UID/GID 10001，目录 0700、文件 0600）。无需挂载私人配置或源代码。
+`docker compose down` 保留数据；**`down -v` 会删除订阅与管理身份**。绑定挂载时须事先设置对应权限。
 可以通过环境变量（或 Compose 同目录的 `.env`）设置：
 
 | 变量 | 默认值 | 用途 |
@@ -127,13 +144,36 @@ Compose 默认只发布到宿主机的 `127.0.0.1`，并使用只读根文件系
 | `MIHOMO_WEB_IMAGE` | 上述 GHCR 镜像的 `latest` | 切换版本、本地镜像或 fork 的镜像地址 |
 | `WEB_BIND_ADDRESS` | `127.0.0.1` | 宿主机绑定地址 |
 | `WEB_PORT` | `4567` | 宿主机端口；容器内仍为 4567 |
+| `PUBLIC_BASE_URL` | `http://127.0.0.1:${WEB_PORT:-4567}` | 网站唯一规范 origin；部署时明确设置为 `https://你的域名`，不含路径 |
+
+原生 Ruby 运行还支持 `DATA_DIR`（默认仓库下已忽略的 `./data`）；镜像与 Compose 固定使用 `/data`。
+原生 `PUBLIC_BASE_URL` 默认 `http://127.0.0.1:$PORT`。只能使用 HTTPS 或 loopback HTTP origin（127.0.0.1、localhost、[::1]）；浏览器访问地址必须与其一致。
 
 例如 `WEB_PORT=8080 docker compose up -d --wait`，随后访问 `http://127.0.0.1:8080`。
-**当前 Web/API 没有登录鉴权，不要直接暴露到公网。** 如需其他设备访问，应先部署有访问控制和 HTTPS 的反向代理。
+**公网部署必须使用 HTTPS 反向代理，并明确设置 `PUBLIC_BASE_URL`。** HTTP 仅用于绑定 loopback 的本地开发，不要通过 `WEB_BIND_ADDRESS=0.0.0.0` 将 HTTP 服务公开。
+代理须保留规范 `Host`；服务不信任 `X-Forwarded-*` 生成 URL、决定 Cookie 安全属性或识别客户端 IP。
+HTTPS origin 会设置 `Secure; HttpOnly; SameSite=Strict` Cookie，本地 HTTP 不设置 Secure。
+管理写请求要求相同 Origin、规范 Host、JSON 和 `X-Mihomo-Request: 1`；没有开放 CORS。
 表单里的“Web 密钥”是生成的 Mihomo 配置密钥，不是这个生成器网站的登录密码。
 
-创建结果保存在服务进程内存中，重启后原有下载 URL 失效；请及时下载。
+旧 `/api/v1/configs` 创建结果仍只保存在内存中（最多最近 32 份），重启或淘汰后下载 URL 失效；新的 `/s/` 订阅在重启后保留。
 浏览器 YAML 编辑内容可能保存在该浏览器的 localStorage 中，其中可能包含密钥，不建议在共享浏览器上使用。
+
+#### 存储、安全与运行限制
+
+持久化是带 flock 锁的有界 JSON 文件，写入通过同目录临时文件、fsync 和原子 rename 完成；更新、URL 重置、删除和恢复均在一次事务中完成。
+请使用支持 flock/原子 rename/fsync 的本地持久卷，单实例部署；不要跨不可靠的网络文件系统共享数据。
+文件损坏、初始化后文件丢失或不可写时请求失败，不会静默重建数据库。修复权限或停止服务后恢复完整备份（含 `.lock` 文件）；不要手工删除锁文件。
+备份卷前建议停止服务，离线加密备份并限制访问；存储包含明文配置密码、WG 私钥及只读令牌，**不是加密保险箱**。
+
+固定限制（见 `lib/subscription_store.rb` / `lib/web_security.rb`）：1000 个身份，每身份一个有效会话、一个恢复码；每身份 20 个订阅、全局 1000 个；单配置 512 KiB、序列化数据库 32 MiB；请求体 1 MiB、请求头 16 KiB，读/写连接各 5 秒。
+超限拒绝且不改动原订阅；身份容量满后需运营者规划备份/迁移，不会自动删除旧用户。
+内置固定分钟窗口限速：直接 TCP 对端 120 请求/分钟、全局 1200 请求/分钟；限速表最多 1024 项，每分钟清空。反向代理后所有用户共享代理 IP 配额，重启也会清空限速窗口。
+这是小型串行 Ruby TCP 服务，**不是生产级 DDoS 防护**。匿名发布天然可能被滥用或占满容量。
+反向代理还应设置连接数、请求/生成频率、请求体大小、读写与上游超时，并按真实客户端地址限流（仅在代理层信任自己的转发链）；不要将后端端口直接公开。
+关闭或脱敏 `/s/*` 的访问日志，也不要记录 Cookie、恢复请求体或配置。服务自身不记录请求路径、令牌或生成器输出。
+所有响应均使用 `Cache-Control: private, no-store`、`Referrer-Policy: no-referrer` 和 `nosniff`；代理也不得缓存订阅/管理响应。
+旧生成 API 保持无 Cookie 的兼容调用方式；它们只生成/暂存结果，不能管理持久订阅，同样受请求大小、输出大小及速率限制。
 
 #### 本地构建（无需等待 GHCR 发布）
 
@@ -149,7 +189,7 @@ MIHOMO_WEB_IMAGE=mihomo-config-web:local docker compose up -d --wait
 
 [`.github/workflows/docker.yml`](.github/workflows/docker.yml) 自动执行：
 
-- PR 到 `main`：运行生成器和表单测试，构建原生镜像，并通过 Compose 测试页面、健康检查、IP4P、WG 生成和下载；不发布镜像。
+- PR 到 `main`：运行生成器、表单、订阅持久化与 HTTP 生命周期/安全测试，构建原生镜像，并通过 Compose 测试页面、健康检查、IP4P、WG 生成和下载；不发布镜像。
 - 推送 `main`：测试通过后发布 `latest` 和 `sha-<短提交号>`。
 - 推送 `v*` 标签：发布同名镜像标签（如 `v1.0.0`）及提交号标签。
 - 支持 Actions 页面手动运行；只有 `main` 分支运行会更新 `latest`。
@@ -180,6 +220,24 @@ curl -OJ http://127.0.0.1:4567/api/v1/configs/<id>/download
 ```
 
 旧的 `/api/generate` 接口仍然保留，用于兼容当前页面。
+
+匿名订阅 API（管理凭据仅在 `mihomo_session` Cookie 中；所有非 GET 请求均为 JSON，要求上述 Origin/Host/自定义头）：
+
+| 方法与路径 | 请求 / 返回 |
+| --- | --- |
+| `POST /api/identity` | `{}`；已有有效身份不轮换，无身份时创建；首次返回 `recovery_code` 并设置 Cookie |
+| `GET /api/subscriptions` | 返回 `subscriptions: [{id, url, updated_at}]`，不创建身份 |
+| `POST /api/subscriptions` | `{config: "完整 YAML 快照"}`；返回 `{id, url, updated_at}` |
+| `PUT /api/subscriptions/<id>` | `{config: "完整 YAML 快照"}`；替换快照但 URL 不变 |
+| `POST /api/subscriptions/<id>/reset` | `{}`；更换只读 URL，返回新元数据 |
+| `DELETE /api/subscriptions/<id>` | `{}`；删除，返回 `{deleted: true}` |
+| `POST /api/identity/recovery` | `{}`；废弃旧恢复码，返回新的 `recovery_code` |
+| `POST /api/identity/recover` | `{recovery_code: "..."}`；一次性消费，换发 Cookie 与新恢复码 |
+| `GET /s/<token>` | 无需 Cookie；只读原始完整 YAML 字节，失效令牌返回 404 |
+
+身份 ID、管理会话、恢复码、订阅 ID 与只读令牌分别使用独立的 32 字节加密随机数。ID 不是凭据。
+非所属订阅与不存在订阅统一返回 404；无效会话 401、来源校验失败 403、容量满 409、过大请求 413、无效配置 422、限速 429。
+管理 API 接收已渲染快照，不重新调用生成器；校验 YAML 根映射含 `proxy-groups` / `rules` 数组，不保证任意手工上传配置的 Mihomo 运行有效性。正常锚点、别名值和合并可用；拒绝复杂/别名映射键、循环/前向别名、超过 64 层的语法树或展开后超过 100000 个节点的别名图，防止小文件消耗过量校验资源。
 
 缺少 `port`、`web_port`、`tun_device`、`dns_split_cn_foreign`、`group_mode` 或 `web_secret` 时会自动补默认值。
 

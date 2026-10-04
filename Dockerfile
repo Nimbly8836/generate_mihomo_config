@@ -1,16 +1,18 @@
 FROM ruby:4.0-slim
 
 ENV HOST=0.0.0.0 \
-    PORT=4567
+    PORT=4567 \
+    DATA_DIR=/data
 
 WORKDIR /app
 
 RUN groupadd --gid 10001 app \
-    && useradd --uid 10001 --gid app --no-log-init --create-home app
+    && useradd --uid 10001 --gid app --no-log-init --create-home app \
+    && install -d -m 0700 -o 10001 -g 10001 /data
 
 # Explicitly copy application sources only, never private values or output YAML.
 COPY generate_mihomo_config.rb config-template.yaml.erb web_server.rb ./
-COPY lib/wireguard_config.rb ./lib/wireguard_config.rb
+COPY lib/wireguard_config.rb lib/subscription_store.rb lib/web_security.rb ./lib/
 COPY web/index.html ./web/index.html
 COPY web/favicon.svg ./web/favicon.svg
 COPY config-values.example.yaml ./config-values.example.yaml

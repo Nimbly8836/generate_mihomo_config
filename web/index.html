@@ -101,8 +101,8 @@
     #generate:hover:not(:disabled), #download:hover:not(:disabled) { opacity: .85; }
     #status { flex-basis: 100%; margin: 0; padding: 12px 14px; border: 1px solid var(--destructive); border-radius: 7px; background: var(--destructive-background); color: var(--destructive); white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 ui-monospace, monospace; }
     .page-footer { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted-foreground); font-size: 11px; }
-    #result-dialog, #reference-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--foreground); overflow: auto; }
-    #result-dialog::backdrop, #reference-dialog::backdrop { background: var(--overlay); }
+    #subscription-dialog, #result-dialog, #reference-dialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--foreground); overflow: auto; }
+    #subscription-dialog::backdrop, #result-dialog::backdrop, #reference-dialog::backdrop { background: var(--overlay); }
     .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
     #result-config, #reference-values { height: min(45dvh, 360px); min-height: 160px; resize: none; }
     .editor-header { justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
@@ -141,7 +141,7 @@
       input, textarea, select { font-size: 16px; }
       .mode-switch { display: flex; }
       .mode-switch button { flex: 1; padding: 8px 10px; }
-      #result-dialog, #reference-dialog { padding: 18px; }
+      #subscription-dialog, #result-dialog, #reference-dialog { padding: 18px; }
       .CodeMirror { font-size: 16px; }
       .dialog-actions button { flex: 1; }
     }
@@ -220,7 +220,7 @@
       </div>
     </fieldset>
     <div id="file-editor" hidden><section><header class="section-header editor-header"><div><h2>values.yaml</h2><p class="hint">生成时会在当前浏览器保存编辑内容；含密钥时请勿使用共享设备。</p></div><button id="open-reference" type="button">参考配置</button></header><textarea id="file-values" aria-label="完整 values.yaml 配置" spellcheck="false"></textarea><p class="hint">Tab / Shift+Tab：调整两空格缩进；Esc：返回生成按钮。</p></section></div>
-    <div class="form-actions"><p class="hint">生成后下载配置，再导入 Mihomo 使用。</p><div class="action-buttons"><button id="generate" type="submit">生成配置</button></div><pre id="status" role="alert" hidden></pre></div>
+    <div class="form-actions"><p class="hint">生成后下载配置，再导入 Mihomo 使用。</p><div class="action-buttons"><button id="my-subscriptions" type="button">我的订阅</button><button id="generate" type="submit">生成配置</button></div><pre id="status" role="alert" hidden></pre></div>
   </form>
   <footer class="page-footer">仅生成配置 · 实际代理连接由 Mihomo 核心处理</footer>
   </main>
@@ -230,7 +230,10 @@
     <p id="result-note" class="hint">配置已生成，可以复制或直接下载。内容可能包含密钥，请妥善保管。</p>
     <label for="result-config">config.yaml</label>
     <textarea id="result-config" readonly wrap="off" spellcheck="false"></textarea>
-    <div class="dialog-actions"><button id="copy-config" type="button">复制配置</button><button id="download" type="button" disabled>下载配置</button></div>
+    <div class="dialog-actions"><button id="result-subscriptions" type="button">我的订阅 / 恢复码</button><button id="publish" type="button" disabled>发布订阅</button><button id="copy-config" type="button">复制配置</button><button id="download" type="button" disabled>下载配置</button></div>
+    <p class="hint">发布仅保存本次预览，不会重新生成密钥。链接可读取完整配置，知悉链接者均可下载；请勿公开分享。</p>
+    <div id="published" hidden><label>订阅链接<input id="published-url" readonly></label><button id="copy-published" type="button">复制链接</button></div>
+    <p id="publish-message" class="hint" role="status" hidden></p>
     <p id="copy-message" class="hint" role="status" aria-live="polite" hidden></p>
   </dialog>
 
@@ -240,6 +243,21 @@
     <textarea id="reference-values" aria-label="values.yaml 参考示例" readonly wrap="off" spellcheck="false"></textarea>
     <div class="dialog-actions"><button id="copy-reference" type="button" disabled>复制参考配置</button></div>
     <p id="reference-message" class="hint" role="status" aria-live="polite" hidden></p>
+  </dialog>
+
+  <dialog id="subscription-dialog" aria-labelledby="subscription-title">
+    <div class="dialog-header"><h2 id="subscription-title">我的订阅</h2><button id="close-subscriptions" type="button">关闭</button></div>
+    <p class="hint">当前浏览器自动持有管理身份，无需登录。订阅链接只读，不能管理订阅。更新使用最近一次成功生成的完整配置，不读取当前表单。</p>
+    <label>已发布订阅<select id="subscription-list" aria-label="已发布订阅"></select></label>
+    <label>只读订阅链接<input id="subscription-url" readonly></label>
+    <div class="action-buttons"><button id="copy-subscription" type="button" disabled>复制链接</button><button id="update-subscription" type="button" disabled>用最新生成配置更新</button><button id="reset-subscription" type="button" disabled>重置链接</button><button id="delete-subscription" type="button" disabled>删除订阅</button></div>
+    <h3>身份恢复</h3>
+    <p class="hint">恢复码是管理密钥，请离线保存。清除 Cookie 或换浏览器后可导入。恢复会注销旧浏览器身份并换发一次性恢复码；生成新码也会立即废弃旧码。Cookie 和恢复码均丢失后无法再管理。</p>
+    <label>新恢复码（仅本次显示，请复制保存）<input id="recovery-code" readonly autocomplete="off" spellcheck="false"></label>
+    <div class="action-buttons"><button id="copy-recovery" type="button" disabled>复制 / 导出恢复码</button><button id="rotate-recovery" type="button">生成新恢复码</button></div>
+    <label>导入恢复码<input id="import-code" type="password" autocomplete="off" spellcheck="false"></label>
+    <button id="import-recovery" type="button">恢复身份</button>
+    <p id="subscription-message" class="hint" role="status" aria-live="polite" hidden></p>
   </dialog>
 
   <template id="wg-template">
@@ -470,19 +488,22 @@
     }
     form.onsubmit = async event => {
       event.preventDefault(); generate.disabled = true; download.disabled = true;
+      config = ''; resultConfig.value = ''; const generation = ++snapshotVersion; clearPublished(); syncSubscriptionButtons();
       generate.textContent = '生成中…'; status.hidden = true; status.textContent = '';
       try {
         const values = mode === 'file' ? fileValues.value : valuesFromForm();
         if (mode === 'file') localStorage.setItem('mihomo-values', values);
         const response = await fetch('/api/generate', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({values})});
         const result = await response.json();
+        if (generation !== snapshotVersion) return;
         if (!response.ok) throw new Error(result.error || '生成失败');
-        config = result.config; download.disabled = false;
+        if (typeof result.config !== 'string' || !result.config.trim()) throw new Error('生成结果为空');
+        config = result.config; download.disabled = false; syncSubscriptionButtons();
         resultConfig.value = config;
         copyMessage.textContent = ''; copyMessage.hidden = true;
         resultDialog.showModal();
-      } catch (error) { status.textContent = '错误：' + error.message; status.hidden = false; }
-      finally { generate.disabled = false; generate.textContent = '生成配置'; }
+      } catch (error) { if (generation === snapshotVersion) { status.textContent = '错误：' + error.message; status.hidden = false; } }
+      finally { if (generation === snapshotVersion) { generate.disabled = false; generate.textContent = '生成配置'; } }
     };
     download.onclick = () => { const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([config], {type: 'application/yaml'})); link.download = 'config.yaml'; link.click(); setTimeout(() => URL.revokeObjectURL(link.href), 1000); };
     document.querySelector('#close-result').onclick = () => resultDialog.close();
@@ -500,7 +521,7 @@
           textarea.focus(); textarea.select();
           try { copied = document.execCommand('copy'); } catch { /* Keep the text selected for manual copying. */ }
         }
-        feedback.textContent = copied ? '已复制到剪贴板。' : '自动复制失败，请手动复制已选中的配置。';
+        feedback.textContent = copied ? '已复制到剪贴板。' : '自动复制失败，请手动复制已选中的内容。';
         feedback.hidden = false;
       } finally { button.disabled = false; }
     }
@@ -508,6 +529,109 @@
     referenceCopy.onclick = () => copyPreview(referenceValues, referenceMessage, referenceCopy, referenceDialog);
     document.querySelector('#close-reference').onclick = () => referenceDialog.close();
     referenceDialog.onclose = () => referenceButton.focus();
+    const subscriptionDialog = document.querySelector('#subscription-dialog');
+    const subscriptionList = document.querySelector('#subscription-list'), subscriptionUrl = document.querySelector('#subscription-url');
+    const subscriptionMessage = document.querySelector('#subscription-message'), recoveryCode = document.querySelector('#recovery-code');
+    const publish = document.querySelector('#publish'), publishedUrl = document.querySelector('#published-url'), publishMessage = document.querySelector('#publish-message');
+    let subscriptionRows = [], subscriptionBusy = false, snapshotVersion = 0;
+    const subButton = id => document.querySelector('#' + id);
+    function selectedSubscription() { return subscriptionRows.find(row => row.id === subscriptionList.value); }
+    function syncSubscriptionButtons() {
+      const selected = selectedSubscription();
+      publish.disabled = subscriptionBusy || !config;
+      for (const id of ['copy-subscription', 'reset-subscription', 'delete-subscription']) subButton(id).disabled = subscriptionBusy || !selected;
+      subButton('update-subscription').disabled = subscriptionBusy || !selected || !config;
+      for (const id of ['rotate-recovery', 'import-recovery', 'my-subscriptions', 'result-subscriptions']) subButton(id).disabled = subscriptionBusy;
+      subButton('copy-recovery').disabled = subscriptionBusy || !recoveryCode.value;
+    }
+    function clearPublished() {
+      publishedUrl.value = ''; document.querySelector('#published').hidden = true;
+      publishMessage.textContent = ''; publishMessage.hidden = true;
+    }
+    function showRecovery(result) {
+      if (result.recovery_code) recoveryCode.value = result.recovery_code;
+    }
+    async function subscriptionApi(path, method = 'GET', payload) {
+      const options = {method, credentials: 'same-origin'};
+      if (method !== 'GET') {
+        options.headers = {'Content-Type': 'application/json', 'X-Mihomo-Request': '1'};
+        options.body = JSON.stringify(payload || {});
+      }
+      const response = await fetch(path, options);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || '操作失败，请重试');
+      return result;
+    }
+    async function ensureIdentity() { showRecovery(await subscriptionApi('/api/identity', 'POST')); }
+    async function loadSubscriptions(preferred) {
+      subscriptionRows = []; subscriptionList.replaceChildren(); subscriptionUrl.value = '';
+      const result = await subscriptionApi('/api/subscriptions');
+      subscriptionRows = result.subscriptions;
+      const options = subscriptionRows.map((row, index) => {
+        const option = document.createElement('option'); option.value = row.id;
+        option.textContent = `订阅 ${index + 1} · ${row.updated_at}`; return option;
+      });
+      subscriptionList.replaceChildren(...options);
+      subscriptionList.value = subscriptionRows.some(row => row.id === preferred) ? preferred : (subscriptionRows[0]?.id || '');
+      subscriptionList.onchange();
+    }
+    subscriptionList.onchange = () => { subscriptionUrl.value = selectedSubscription()?.url || ''; syncSubscriptionButtons(); };
+    async function subscriptionAction(feedback, action) {
+      if (subscriptionBusy) return;
+      subscriptionBusy = true; syncSubscriptionButtons(); feedback.textContent = ''; feedback.hidden = true;
+      try { await action(); }
+      catch (error) { feedback.textContent = '错误：' + error.message; feedback.hidden = false; }
+      finally { subscriptionBusy = false; syncSubscriptionButtons(); }
+    }
+    async function openSubscriptions() {
+      if (resultDialog.open) resultDialog.close();
+      subscriptionDialog.showModal();
+      await subscriptionAction(subscriptionMessage, async () => { await ensureIdentity(); await loadSubscriptions(); });
+    }
+    subButton('my-subscriptions').onclick = openSubscriptions;
+    subButton('result-subscriptions').onclick = openSubscriptions;
+    subButton('close-subscriptions').onclick = () => subscriptionDialog.close();
+    subscriptionDialog.onclose = () => generate.focus();
+    publish.onclick = () => subscriptionAction(publishMessage, async () => {
+      if (!config) return;
+      const snapshot = config, version = snapshotVersion;
+      clearPublished();
+      await ensureIdentity();
+      const row = await subscriptionApi('/api/subscriptions', 'POST', {config: snapshot});
+      if (version !== snapshotVersion) return;
+      publishedUrl.value = row.url; document.querySelector('#published').hidden = false;
+      publishMessage.textContent = '已发布。请到“我的订阅 / 恢复码”保存恢复码。'; publishMessage.hidden = false;
+    });
+    subButton('copy-published').onclick = () => copyPreview(publishedUrl, publishMessage, subButton('copy-published'), resultDialog);
+    subButton('copy-subscription').onclick = () => copyPreview(subscriptionUrl, subscriptionMessage, subButton('copy-subscription'), subscriptionDialog);
+    subButton('copy-recovery').onclick = () => copyPreview(recoveryCode, subscriptionMessage, subButton('copy-recovery'), subscriptionDialog);
+    for (const [id, method, suffix, prompt] of [
+      ['update-subscription', 'PUT', '', '用最新生成的配置覆盖此订阅？链接保持不变。'],
+      ['reset-subscription', 'POST', '/reset', '重置链接？旧链接将立即失效。'],
+      ['delete-subscription', 'DELETE', '', '删除订阅？旧链接将立即失效且无法撤销。']
+    ]) {
+      subButton(id).onclick = () => subscriptionAction(subscriptionMessage, async () => {
+        const row = selectedSubscription(), snapshot = config;
+        if (!row || (method === 'PUT' && !snapshot) || !confirm(prompt)) return;
+        await subscriptionApi('/api/subscriptions/' + row.id + suffix, method, method === 'PUT' ? {config: snapshot} : {});
+        clearPublished(); await loadSubscriptions(row.id);
+        subscriptionMessage.textContent = '已完成。'; subscriptionMessage.hidden = false;
+      });
+    }
+    subButton('rotate-recovery').onclick = () => subscriptionAction(subscriptionMessage, async () => {
+      if (!confirm('生成新恢复码？旧恢复码将立即失效。')) return;
+      recoveryCode.value = '';
+      showRecovery(await subscriptionApi('/api/identity/recovery', 'POST'));
+      subscriptionMessage.textContent = '新恢复码已生成，请立即复制保存。'; subscriptionMessage.hidden = false;
+    });
+    subButton('import-recovery').onclick = () => subscriptionAction(subscriptionMessage, async () => {
+      const input = subButton('import-code'), code = input.value.trim(); input.value = '';
+      if (!code || !confirm('恢复将切换当前身份并注销原浏览器，请先保存当前身份的恢复码。继续？')) return;
+      const result = await subscriptionApi('/api/identity/recover', 'POST', {recovery_code: code});
+      recoveryCode.value = ''; showRecovery(result); clearPublished(); await loadSubscriptions();
+      subscriptionMessage.textContent = '身份已恢复，旧码已失效，请保存新恢复码。'; subscriptionMessage.hidden = false;
+    });
+    syncSubscriptionButtons();
     let referenceRequest = 0;
     referenceButton.onclick = async () => {
       const request = ++referenceRequest;

@@ -39,6 +39,8 @@ jobs:
           gem install minitest --version '~> 5.25' --no-document
           ruby -Itest test/generate_mihomo_config_test.rb
           node --test test/web_form_test.cjs
+          ruby -Itest test/subscription_store_test.rb
+          ruby -Itest test/web_subscriptions_test.rb
 
       - name: Set up Docker Buildx
         # v3

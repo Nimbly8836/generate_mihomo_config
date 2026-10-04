@@ -7,6 +7,8 @@
 !web_server.rb
 !lib/
 !lib/wireguard_config.rb
+!lib/subscription_store.rb
+!lib/web_security.rb
 !web/
 !web/index.html
 !web/favicon.svg

@@ -466,6 +466,211 @@ function page(ip4p, extraFields = {}) {
   return { context, element, requests, fields };
 }
 
+test("publishing is explicit and sends the exact last preview with CSRF headers", async () => {
+  const { context, element, requests } = page(false);
+  assert.equal(element("#publish").disabled, true);
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.equal(requests.length, 1);
+  assert.equal(element("#publish").disabled, false);
+  const calls = [];
+  context.localStorage.setItem = () => {
+    throw new Error("unexpected persistence");
+  };
+  context.fetch = async (url, options) => {
+    calls.push(url);
+    assert.equal(options.headers["X-Mihomo-Request"], "1");
+    assert.equal(options.headers["Content-Type"], "application/json");
+    assert.equal(options.credentials, "same-origin");
+    if (url === "/api/identity")
+      return {
+        ok: true,
+        json: async () => ({ recovery_code: "test-recovery" }),
+      };
+    assert.equal(url, "/api/subscriptions");
+    assert.deepEqual(JSON.parse(options.body), { config: "test-config" });
+    return {
+      ok: true,
+      json: async () => ({ url: "https://example.com/s/test-token" }),
+    };
+  };
+  element("#result-config").value = "not the generated snapshot";
+  await element("#publish").onclick();
+  assert.deepEqual(calls, ["/api/identity", "/api/subscriptions"]);
+  assert.equal(
+    element("#published-url").value,
+    "https://example.com/s/test-token",
+  );
+  assert.equal(element("#recovery-code").value, "test-recovery");
+  assert.equal(element("#published").hidden, false);
+  let copied;
+  context.navigator.clipboard = {
+    writeText: async (text) => {
+      copied = text;
+    },
+  };
+  await element("#copy-published").onclick();
+  assert.equal(copied, "https://example.com/s/test-token");
+});
+
+test("regeneration and errors clear stale publication and disable snapshot actions", async () => {
+  const { context, element } = page(false);
+  await element("#form").onsubmit({ preventDefault() {} });
+  element("#published-url").value = "old-link";
+  context.fetch = async () => {
+    throw new Error("offline");
+  };
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.equal(element("#published-url").value, "");
+  assert.equal(element("#published").hidden, true);
+  assert.equal(element("#publish").disabled, true);
+  assert.equal(element("#update-subscription").disabled, true);
+  assert.equal(element("#result-config").value, "");
+  context.fetch = async () => ({
+    ok: true,
+    json: async () => ({ config: "new-config" }),
+  });
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.equal(element("#publish").disabled, false);
+  context.fetch = async () => ({
+    ok: false,
+    json: async () => ({ error: "<img src=x onerror=bad>" }),
+  });
+  await element("#publish").onclick();
+  assert.match(element("#publish-message").textContent, /<img/);
+  assert.equal(element("#publish-message").innerHTML, undefined);
+  assert.equal(element("#published-url").value, "");
+  assert.equal(element("#publish").disabled, false);
+});
+
+test("late publish and generation responses cannot restore stale preview links", async () => {
+  const { context, element } = page(false);
+  await element("#form").onsubmit({ preventDefault() {} });
+  let finishPublish;
+  context.fetch = async (url) =>
+    url === "/api/identity"
+      ? { ok: true, json: async () => ({}) }
+      : new Promise((resolve) => {
+          finishPublish = resolve;
+        });
+  const pending = element("#publish").onclick();
+  while (!finishPublish) await Promise.resolve();
+  context.fetch = async () => ({
+    ok: true,
+    json: async () => ({ config: "new-snapshot" }),
+  });
+  await element("#form").onsubmit({ preventDefault() {} });
+  finishPublish({ ok: true, json: async () => ({ url: "old-snapshot-link" }) });
+  await pending;
+  assert.equal(element("#published-url").value, "");
+  assert.equal(element("#result-config").value, "new-snapshot");
+  let finishGenerate;
+  context.fetch = () =>
+    new Promise((resolve) => {
+      finishGenerate = resolve;
+    });
+  const older = element("#form").onsubmit({ preventDefault() {} });
+  context.fetch = async () => ({
+    ok: true,
+    json: async () => ({ config: "newest" }),
+  });
+  await element("#form").onsubmit({ preventDefault() {} });
+  finishGenerate({ ok: true, json: async () => ({ config: "out-of-order" }) });
+  await older;
+  assert.equal(element("#result-config").value, "newest");
+});
+
+test("my subscriptions uses safe text and confirms snapshot updates, reset and delete", async () => {
+  const { context, element } = page(false);
+  await element("#form").onsubmit({ preventDefault() {} });
+  const row = {
+    id: "id",
+    url: "https://example.com/s/token",
+    updated_at: "<script>bad</script>",
+  };
+  const mutations = [];
+  context.fetch = async (url, options) => {
+    if (url === "/api/identity") return { ok: true, json: async () => ({}) };
+    if (options.method === "GET")
+      return { ok: true, json: async () => ({ subscriptions: [row] }) };
+    mutations.push([url, options.method, JSON.parse(options.body)]);
+    return { ok: true, json: async () => ({}) };
+  };
+  await element("#my-subscriptions").onclick();
+  assert.equal(element("#subscription-dialog").open, true);
+  assert.equal(element("#result-dialog").open, false);
+  assert.match(
+    element("#subscription-list").children[0].textContent,
+    /<script>/,
+  );
+  assert.equal(element("#subscription-list").children[0].innerHTML, undefined);
+  assert.equal(element("#subscription-url").value, row.url);
+  assert.equal(element("#update-subscription").disabled, false);
+  context.confirm = () => false;
+  await element("#delete-subscription").onclick();
+  assert.equal(mutations.length, 0);
+  context.confirm = () => true;
+  await element("#update-subscription").onclick();
+  await element("#reset-subscription").onclick();
+  await element("#delete-subscription").onclick();
+  assert.deepEqual(mutations, [
+    ["/api/subscriptions/id", "PUT", { config: "test-config" }],
+    ["/api/subscriptions/id/reset", "POST", {}],
+    ["/api/subscriptions/id", "DELETE", {}],
+  ]);
+  context.fetch = async () => {
+    throw new Error("offline");
+  };
+  await element("#my-subscriptions").onclick();
+  // Identity request failed: no replacement credentials or HTML are displayed.
+  assert.match(element("#subscription-message").textContent, /offline/);
+});
+
+test("recovery import and rotation clear entered secrets and support manual export", async () => {
+  const { context, element } = page(false);
+  const calls = [];
+  context.confirm = () => true;
+  context.localStorage.setItem = () => {
+    throw new Error("unexpected persistence");
+  };
+  context.fetch = async (url, options) => {
+    calls.push([url, options.body && JSON.parse(options.body)]);
+    if (url === "/api/subscriptions")
+      return { ok: true, json: async () => ({ subscriptions: [] }) };
+    return {
+      ok: true,
+      json: async () => ({
+        recovery_code: url.endsWith("/recover")
+          ? "rotated-after-import"
+          : "new-recovery",
+      }),
+    };
+  };
+  await element("#my-subscriptions").onclick();
+  assert.equal(element("#update-subscription").disabled, true);
+  element("#import-code").value = "one-use-recovery";
+  await element("#import-recovery").onclick();
+  assert.equal(element("#import-code").value, "");
+  assert.equal(element("#recovery-code").value, "rotated-after-import");
+  assert.deepEqual(calls.find(([url]) => url.endsWith("/recover"))[1], {
+    recovery_code: "one-use-recovery",
+  });
+  await element("#rotate-recovery").onclick();
+  assert.equal(element("#recovery-code").value, "new-recovery");
+  context.document.execCommand = () => false;
+  await element("#copy-recovery").onclick();
+  assert.equal(element("#recovery-code").selected, true);
+  assert.match(element("#subscription-message").textContent, /手动复制/);
+  context.fetch = async () => ({
+    ok: false,
+    json: async () => ({ error: "恢复码无效" }),
+  });
+  element("#import-code").value = "bad-code";
+  await element("#import-recovery").onclick();
+  assert.equal(element("#import-code").value, "");
+  assert.equal(element("#recovery-code").value, "new-recovery");
+  assert.match(element("#subscription-message").textContent, /恢复码无效/);
+});
+
 test("IP4P is an opt-in checkbox with a core compatibility notice", () => {
   assert.match(
     html,
