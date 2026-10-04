@@ -28,10 +28,16 @@ external_ui_url: >-
   https://github.com/MetaCubeX/yacd/archive/gh-pages.zip
 
 # 远程订阅。prefix 会加到订阅节点名称前面。
+# 多条 name 相同的订阅会汇总所有来源；完整条目完全相同时只保留一份。
+# 内部自动分配唯一 provider 名称和 HTTP 缓存路径，不按节点名去重。
 proxy_providers:
   - name: main
     prefix: Main
     url: https://example.com/main-subscription.yaml
+  # 同名来源示例：取消注释后，两条 main 订阅的节点都会进入策略组。
+  # - name: main
+  #   prefix: Main
+  #   url: https://example.com/another-main-subscription.yaml
   - name: backup
     prefix: Backup
     url: https://example.com/backup-subscription.yaml

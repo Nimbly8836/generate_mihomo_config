@@ -488,6 +488,77 @@ class GenerateMihomoConfigTest < Minitest::Test
     end
   end
 
+  def test_same_name_subscriptions_merge_sources_without_overwriting_or_repeating_entries
+    first = { 'name' => 'main', 'url' => 'https://example.com/one.yaml' }
+    second = { 'name' => 'main', 'url' => 'https://example.com/two.yaml', 'interval' => 7200,
+               'prefix' => 'Second', 'override' => { 'udp' => true }, 'header' => { 'User-Agent' => ['test'] } }
+    %w[simple detailed].each do |mode|
+      values = empty_provider_values([]).merge('group_mode' => mode, 'proxy_providers' => [first, second, first.dup])
+      with_generated_config(values) do |config, _output_path|
+        providers = config.fetch('proxy-providers')
+        assert_equal %w[main main__2], providers.keys
+        assert_equal [first['url'], second['url']], providers.values.map { |provider| provider['url'] }
+        assert_equal ['./proxy_providers/main.yaml', './proxy_providers/main__2.yaml'],
+                     providers.values.map { |provider| provider['path'] }
+        assert_equal 'main | ', providers['main']['override']['additional-prefix']
+        assert_equal 'Second | ', providers['main__2']['override']['additional-prefix']
+        assert_equal true, providers['main__2']['override']['udp']
+        assert_equal 7200, providers['main__2']['interval']
+        assert_equal second['header'], providers['main__2']['header']
+        PROVIDER_GROUP_NAMES.each { |name| assert_equal providers.keys, proxy_group(config, name).fetch('use') }
+      end
+    end
+  end
+
+  def test_merged_provider_names_reserve_all_user_names_and_keep_original_default_prefix
+    providers = %w[main main main__2 main].each_with_index.map do |name, index|
+      { 'name' => name, 'url' => "https://example.com/#{index}.yaml" }
+    end
+    with_generated_config(empty_provider_values([]).merge('proxy_providers' => providers)) do |config, _output_path|
+      merged = config.fetch('proxy-providers')
+      assert_equal %w[main main__3 main__2 main__4], merged.keys
+      assert_equal providers.map { |provider| provider['url'] }, merged.values.map { |provider| provider['url'] }
+      assert_equal ['main | ', 'main | ', 'main__2 | ', 'main | '],
+                   merged.values.map { |provider| provider['override']['additional-prefix'] }
+    end
+  end
+
+  def test_same_url_with_different_options_is_not_discarded_and_names_are_yaml_quoted
+    first = { 'name' => 'true', 'url' => 'https://example.com/sub.yaml', 'prefix' => 'A' }
+    second = first.merge('prefix' => 'B', 'override' => { 'additional-prefix' => 'Explicit | ' })
+    with_generated_config(empty_provider_values([]).merge('proxy_providers' => [first, second, first])) do |config, _output_path|
+      providers = config.fetch('proxy-providers')
+      assert_equal %w[true true__2], providers.keys
+      assert_equal ['A | ', 'Explicit | '], providers.values.map { |provider| provider['override']['additional-prefix'] }
+    end
+  end
+
+  def test_same_name_provider_references_expand_in_custom_groups_and_final_overrides
+    providers = [1, 2].map { |index| { 'name' => 'main', 'url' => "https://example.com/#{index}.yaml" } }
+    group = { 'name' => 'combined', 'type' => 'select', 'use' => %w[main main__2 main] }
+    base = empty_provider_values([]).merge('proxy_providers' => providers, 'local_proxy_groups' => [group])
+    with_generated_config(base) do |config, _output_path|
+      assert_equal %w[main main__2], proxy_group(config, 'combined')['use']
+    end
+    with_generated_config(base.merge('config_overrides' => { 'proxy-groups' => [group] })) do |config, _output_path|
+      assert_equal %w[main main__2], proxy_group(config, 'combined')['use']
+    end
+  end
+
+  def test_same_name_http_sources_receive_distinct_cache_paths_without_taking_reserved_paths
+    providers = [
+      { 'name' => 'main', 'url' => 'https://example.com/1.yaml', 'path' => './cache/sub.yaml' },
+      { 'name' => 'main', 'url' => 'https://example.com/2.yaml', 'path' => './cache/../cache/sub.yaml' },
+      { 'name' => 'other', 'url' => 'https://example.com/3.yaml', 'path' => './cache/sub__2.yaml' }
+    ]
+    with_generated_config(empty_provider_values([]).merge('proxy_providers' => providers)) do |config, _output_path|
+      merged = config.fetch('proxy-providers')
+      assert_equal './cache/sub.yaml', merged['main']['path']
+      assert_equal './cache/../cache/sub__3.yaml', merged['main__2']['path']
+      assert_equal './cache/sub__2.yaml', merged['other']['path']
+    end
+  end
+
   def test_detailed_groups_default_to_simple_parent
     values = empty_provider_values([]).merge('group_mode' => 'detailed')
 

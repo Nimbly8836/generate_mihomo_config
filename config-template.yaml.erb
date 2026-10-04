@@ -411,7 +411,7 @@ proxy-providers:
 <% else -%>
 <% proxy_providers.each do |provider| -%>
   # 远程订阅：<%= provider.fetch("name") %>
-  <%= provider.fetch("name") %>:
+  <%= yaml_scalar(provider.fetch("name")) %>:
 <% if provider_uses_defaults?(provider) -%>
     <<: *provider_defaults
 <% end -%>

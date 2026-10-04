@@ -174,7 +174,7 @@
         <label>Web 密钥<input name="web_secret" placeholder="留空自动生成"></label>
       </div>
       </section>
-      <section id="subscriptions"><header class="section-header"><h2>节点订阅</h2></header><p id="providers-hint" class="hint">每行：名称 | URL | 前缀；前缀可省略。URL 请填写 Clash 类型的订阅链接。</p><textarea name="providers" aria-label="节点订阅列表" aria-describedby="providers-hint" placeholder="main | https://example.com/sub.yaml | Main"></textarea></section>
+      <section id="subscriptions"><header class="section-header"><h2>节点订阅</h2></header><p id="providers-hint" class="hint">每行：名称 | URL | 前缀；前缀可省略。URL 请填写 Clash 类型的订阅链接。同名订阅自动合并来源，完全重复的条目只保留一份。</p><textarea name="providers" aria-label="节点订阅列表" aria-describedby="providers-hint" placeholder="main | https://example.com/sub.yaml | Main"></textarea></section>
       <details id="advanced-settings">
         <summary>高级配置<span class="advanced-description">实验功能、WireGuard、自定义规则和外部规则集（可选）</span></summary>
         <div class="sections">

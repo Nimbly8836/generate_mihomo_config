@@ -3,6 +3,7 @@
 
 require 'erb'
 require 'optparse'
+require 'pathname'
 require 'psych'
 require 'securerandom'
 require_relative 'lib/wireguard_config'
@@ -195,6 +196,7 @@ class TemplateContext
     @url_test = DEFAULT_URL_TEST.merge((configured_url_test || {}).transform_keys(&:to_s))
     validate_group_mode!
     validate!
+    merge_proxy_providers!
   end
 
   def get_binding
@@ -232,6 +234,27 @@ class TemplateContext
 
   def provider_names
     @provider_names ||= proxy_providers.map { |provider| provider.fetch('name') }
+  end
+
+  # A logical subscription can have multiple physical providers. Expand explicit
+  # use references after final overrides too; leave unrelated names untouched.
+  def expand_provider_uses(output)
+    return output unless @provider_aliases.values.any? { |names| names.length > 1 }
+
+    config = Psych.safe_load(output, permitted_classes: [], aliases: true)
+    return output unless config.is_a?(Hash) && config['proxy-groups'].is_a?(Array)
+
+    changed = false
+    config['proxy-groups'].each do |group|
+      next unless group.is_a?(Hash) && group['use'].is_a?(Array)
+
+      expanded = group['use'].flat_map { |name| @provider_aliases.fetch(name, [name]) }.uniq
+      next if expanded == group['use']
+
+      group['use'] = expanded
+      changed = true
+    end
+    changed ? Psych.dump(config) : output
   end
 
   def local_proxy_names
@@ -338,6 +361,69 @@ class TemplateContext
   end
 
   private
+
+  def merge_proxy_providers!
+    names = proxy_providers.map { |provider| provider.fetch('name') }
+    unless names.all? { |name| name.is_a?(String) && !name.strip.empty? && !name.match?(/[\r\n\0]/) }
+      warn 'proxy_providers names must be non-empty single-line strings'
+      exit 1
+    end
+    # Reserve even later input names, so main + main cannot steal a user's main__2.
+    reserved = names.to_h { |name| [name, true] }
+    @provider_aliases = names.uniq.to_h { |name| [name, []] }
+    suffixes = Hash.new(2)
+    @proxy_providers = proxy_providers.uniq.map do |original|
+      provider = original.dup
+      name = original.fetch('name')
+      aliases = @provider_aliases.fetch(name)
+      unless aliases.empty?
+        loop do
+          candidate = "#{name}__#{suffixes[name]}"
+          suffixes[name] += 1
+          next if reserved[candidate]
+
+          reserved[candidate] = true
+          provider['name'] = candidate
+          break
+        end
+        # Internal suffixes are identifiers, not changes to the displayed prefix.
+        provider['prefix'] = name if blank_value?(provider['prefix'])
+      end
+      aliases << provider.fetch('name')
+      provider
+    end
+    separate_provider_cache_paths!
+  end
+
+  def separate_provider_cache_paths!
+    paths = proxy_providers.map { |provider| provider['path'] || "./proxy_providers/#{provider.fetch('name')}.yaml" }
+    unless paths.all? { |path| path.is_a?(String) && !path.empty? && !path.include?("\0") }
+      warn 'proxy_providers paths must be non-empty strings'
+      exit 1
+    end
+    reserved = paths.to_h { |path| [Pathname.new(path).cleanpath.to_s, true] }
+    used = {}
+    suffixes = Hash.new(2)
+    proxy_providers.zip(paths).each do |provider, path|
+      key = Pathname.new(path).cleanpath.to_s
+      if used[key] && provider.fetch('type', 'http') == 'http'
+        extension = File.extname(path)
+        loop do
+          candidate = "#{path.delete_suffix(extension)}__#{suffixes[key]}#{extension}"
+          suffixes[key] += 1
+          candidate_key = Pathname.new(candidate).cleanpath.to_s
+          next if reserved[candidate_key]
+
+          path = candidate
+          key = candidate_key
+          reserved[key] = true
+          break
+        end
+      end
+      used[key] = true
+      provider['path'] = path
+    end
+  end
 
   def local_proxy_group_references_any?(group, target_names, visited_names = [])
     referenced_names = Array(group['proxies']).map(&:to_s)
@@ -628,6 +714,7 @@ context = TemplateContext.new(values)
 output = ERB.new(template, trim_mode: '-').result(context.get_binding)
 output = append_fake_ip_filter(output, context.fake_ip_filter)
 output = apply_config_overrides(output, values['config_overrides'])
+output = context.expand_provider_uses(output)
 
 File.write(options[:output], output)
 warn "Using default port=#{applied_defaults['port']}" if applied_defaults.key?('port')

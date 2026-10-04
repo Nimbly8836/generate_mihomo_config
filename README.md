@@ -266,6 +266,23 @@ local_rules: []
 
 订阅的 `prefix` 会转换为 Mihomo 的 `override.additional-prefix`。订阅下载默认使用 `DIRECT`；需要通过代理更新时，可以在对应 provider 中显式设置 `proxy`。
 
+### 同名节点订阅合并
+
+生成页面可以多次填写同一个订阅名，例如：
+
+```text
+main | https://example.com/one.yaml | Main
+main | https://example.com/two.yaml | Main
+```
+
+两条链接的节点都会进入 `all_nodes` 和对应地区组，后面的来源不会覆盖前面的来源。YAML / API 的 `proxy_providers` 列表同样支持多个相同 `name`（按名称精确匹配，区分大小写）。
+
+- 完整条目完全相同时去重；同一个 URL 的前缀、筛选、请求头等参数不同则分别保留，不丢弃设置。
+- Mihomo 的一个 HTTP provider 只能使用一个 URL，所以内部生成 `main`、`main__2` 等独立 provider，并自动避开用户已经使用的名称。这是来源汇总，不是把 URL 填成数组，也不是由生成器下载节点。
+- 各来源使用独立 HTTP 缓存；重复的显式 `path` 自动加后缀，避开其他已指定路径。前缀省略时仍使用原订阅名，不带内部编号。
+- 自定义策略组中的 `use: [main]` 会展开为全部同名来源，`config_overrides.proxy-groups` 中的 `use` 也适用；需要选择单个来源时请为它填写不同的订阅名。
+- **不按节点名称去重**，不合并“我的订阅”中发布的完整配置链接。已发布的旧配置须重新生成后主动更新，才会应用新行为。
+
 ## 最终配置覆盖
 
 在 values 中使用 `config_overrides`，可覆盖模板输出中的任意 Mihomo 字段，或增加核心支持的实验/插件配置：
@@ -280,7 +297,7 @@ config_overrides:
 ```
 
 只设置 `dns.ipv6` 不会丢失原来的 `nameserver`、`fake-ip-filter` 等其他 DNS 项。
-此入口在模板渲染、`fake_ip_filter` 追加完成后执行，优先级最高。
+此入口在模板渲染、`fake_ip_filter` 追加完成后执行，优先级最高；最后仅将策略组 `use` 中的同名订阅引用展开为实际 provider 列表。
 生成文件把 `config_overrides` 中的配置块按你填写的顺序放在最前面，块内也优先显示你填写的字段，
 其余默认字段随后保留。同一个配置键只输出一次；显示顺序本身不会改变 Mihomo 的匹配优先级。
 
@@ -289,7 +306,7 @@ config_overrides:
 - 标量直接替换，`false`、`0`、空字符串等不会被当成未配置。
 - `null` 写成 YAML 空值，不表示删除字段；`{}` 是空合并，不会清空已有配置块。
 - 使用最终 Mihomo 字段名，例如 `mixed-port`、`external-controller`，不是生成器输入名 `port`、`web_port`。
-- 未设置或写成 `{}` 时，输出格式保持不变；非空覆盖会重新序列化 YAML，不保留模板注释和原有排版。
+- 未设置或写成 `{}` 时通常保持输出格式；非空覆盖或自定义策略组需要展开同名订阅引用时，会重新序列化 YAML，不保留模板注释和原有排版。
 - 自定义字段仅透传，不安装插件、不保证当前核心识别；覆盖造成的无效策略引用等需自行校验。
 
 节点级字段（例如 WireGuard 的 `ip-version`、密钥、`allowed-ips`）继续写在 `local_proxies` 节点内，原样传递。
