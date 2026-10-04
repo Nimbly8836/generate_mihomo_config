@@ -1021,14 +1021,24 @@ test("same-name subscription rows merge every source and deduplicate exact repea
   assert.equal(requests[0].values.proxy_providers.length, 3);
   const config = renderConfig(requests[0].values);
   assert.deepEqual(Object.keys(config["proxy-providers"]), ["main", "main__2"]);
-  assert.deepEqual(Object.values(config["proxy-providers"]).map((provider) => provider.url), [
-    "https://example.com/one.yaml", "https://example.com/two.yaml",
-  ]);
+  assert.deepEqual(
+    Object.values(config["proxy-providers"]).map((provider) => provider.url),
+    ["https://example.com/one.yaml", "https://example.com/two.yaml"],
+  );
   for (const name of ["all_nodes", "hk", "hk_auto", "others", "others_auto"]) {
-    assert.deepEqual(config["proxy-groups"].find((group) => group.name === name).use, ["main", "main__2"]);
+    assert.deepEqual(
+      config["proxy-groups"].find((group) => group.name === name).use,
+      ["main", "main__2"],
+    );
   }
-  assert.equal(config["proxy-providers"].main.override["additional-prefix"], "main | ");
-  assert.equal(config["proxy-providers"].main__2.override["additional-prefix"], "Second | ");
+  assert.equal(
+    config["proxy-providers"].main.override["additional-prefix"],
+    "main | ",
+  );
+  assert.equal(
+    config["proxy-providers"].main__2.override["additional-prefix"],
+    "Second | ",
+  );
 });
 
 test("combined form values render WG, external provider and selected rules end to end", async () => {

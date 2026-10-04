@@ -434,7 +434,8 @@ apple → cloud → proxy
 download → proxy
 adult → proxy
 china → DIRECT
-other → final
+other → proxy
+final → proxy（默认，可独立选择其他策略组）
 ```
 
 ### detailed
@@ -459,6 +460,12 @@ github → dev → proxy → ...
 - Chat：`telegram`、`discord`、`whatsapp`、`x`
 - Dev：`github`、`gitlab`、`docker`
 - Cloud：`google`、`apple`、`microsoft`、`onedrive`（`apple` 在 simple 模式中也保留）
+
+### final 独立兜底选择
+
+未匹配规则的流量仍由 `MATCH,final` 处理。`final` 默认选择 `proxy`，但可以独立改选 `DIRECT`、地区组、`all_nodes`、`my_proxy`、`default`、简单分类组或 `apple`；detailed 模式还可选择 `openai`、`netflix` 等已生成的详细服务组，不再仅有 `proxy` / `DIRECT` 两个选项。
+
+自定义组只要不直接或间接引用 `final`，也会加入候选。不会把 `final` 自身、隐藏的 `*_auto` 组或 WG 内网专用组加入列表；有回指的自定义组会被排除，以免形成循环。其他组原有的默认出口不变。
 
 ### Apple 独立分组
 

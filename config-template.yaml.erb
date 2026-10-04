@@ -603,16 +603,21 @@ proxy-groups:
 <% end -%>
 <% end -%>
 
-  # 最终兜底与旧名称兼容组。
+  # 最终兜底独立选择出口；默认仍跟随 proxy，也可选择其他可见策略组。
   - name: final
     type: select
     proxies:
       - proxy
       - DIRECT
-<% local_proxy_group_names_for(*built_in_groups).each do |name| -%>
+<% final_service_groups = group_mode == 'detailed' ? detailed_groups.keys : ['apple'] -%>
+<% (%w[default all_nodes my_proxy domestic] + simple_groups + final_service_groups + region_groups).uniq.each do |name| -%>
+      - <%= yaml_scalar(name) %>
+<% end -%>
+<% local_proxy_group_names_for('final').each do |name| -%>
       - <%= yaml_scalar(name) %>
 <% end -%>
 
+  # 旧名称兼容组。
   - name: domestic
     type: select
     proxies:

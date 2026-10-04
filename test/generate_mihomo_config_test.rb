@@ -569,6 +569,61 @@ class GenerateMihomoConfigTest < Minitest::Test
     end
   end
 
+  def test_final_can_select_visible_groups_independently_of_proxy
+    %w[simple detailed].each do |mode|
+      with_generated_config(empty_provider_values([]).merge('group_mode' => mode)) do |config, path|
+        groups = config.fetch('proxy-groups').to_h { |group| [group.fetch('name'), group] }
+        choices = groups.fetch('final').fetch('proxies')
+        assert_equal 'proxy', choices.first
+        %w[DIRECT default all_nodes my_proxy domestic ai game media chat dev cloud download adult china other apple
+           hk jp tw sg us kr eu others].each { |name| assert_includes choices, name, mode }
+        if mode == 'detailed'
+          %w[openai claude steam netflix telegram github google onedrive].each { |name| assert_includes choices, name }
+        else
+          %w[openai steam netflix google].each { |name| refute_includes choices, name }
+        end
+        assert_equal choices.uniq, choices
+        refute_includes choices, 'final'
+        refute choices.any? { |name| name.end_with?('_auto') }
+        assert_equal 'all_nodes', groups.fetch('proxy').fetch('proxies').first
+        refute_includes groups.fetch('proxy').fetch('proxies'), 'ai'
+        assert_equal 'MATCH,final', config.fetch('rules').last
+
+        # Every route reachable from final must exist and must not return to it.
+        pending = choices.dup
+        visited = []
+        until pending.empty?
+          name = pending.pop
+          next if %w[DIRECT REJECT].include?(name) || visited.include?(name)
+
+          refute_equal 'final', name
+          assert groups.key?(name), "unknown final target #{name}"
+          visited << name
+          pending.concat(groups.fetch(name).fetch('proxies', []))
+        end
+        assert_mihomo_valid(path) if mihomo_available?
+      end
+    end
+  end
+
+  def test_final_includes_safe_custom_groups_but_excludes_direct_and_indirect_back_references
+    custom = [
+      { 'name' => 'via_default', 'type' => 'select', 'proxies' => ['default'] },
+      { 'name' => 'via_ai', 'type' => 'select', 'proxies' => ['ai'] },
+      { 'name' => 'back_final', 'type' => 'select', 'proxies' => ['final'] },
+      { 'name' => 'back_indirect', 'type' => 'select', 'proxies' => ['back_final'] }
+    ]
+    %w[simple detailed].each do |mode|
+      values = empty_provider_values([]).merge('group_mode' => mode, 'local_proxy_groups' => custom)
+      with_generated_config(values) do |config, path|
+        choices = proxy_group(config, 'final').fetch('proxies')
+        %w[via_default via_ai].each { |name| assert_includes choices, name }
+        %w[back_final back_indirect].each { |name| refute_includes choices, name }
+        assert_mihomo_valid(path) if mihomo_available?
+      end
+    end
+  end
+
   def test_apple_group_and_rules_are_available_in_both_modes
     %w[simple detailed].each do |mode|
       [empty_provider_values([]), provider_present_values].each do |values|
