@@ -402,6 +402,12 @@ function page(ip4p, extraFields = {}) {
           },
         },
         setAttribute() {},
+        contains() {
+          return false;
+        },
+        querySelectorAll() {
+          return [];
+        },
         addEventListener(type, handler, capture) {
           (this.listeners ||= {})[type] = handler;
           this.capture = capture;
@@ -487,7 +493,11 @@ test("publishing is explicit and sends the exact last preview with CSRF headers"
         json: async () => ({ recovery_code: "test-recovery" }),
       };
     assert.equal(url, "/api/subscriptions");
-    assert.deepEqual(JSON.parse(options.body), { config: "test-config" });
+    assert.deepEqual(JSON.parse(options.body), {
+      config: "test-config",
+      source: JSON.stringify(requests[0].values, null, 2),
+      name: "我的配置",
+    });
     return {
       ok: true,
       json: async () => ({ url: "https://example.com/s/test-token" }),
@@ -580,7 +590,7 @@ test("late publish and generation responses cannot restore stale preview links",
 });
 
 test("my subscriptions uses safe text and confirms snapshot updates, reset and delete", async () => {
-  const { context, element } = page(false);
+  const { context, element, requests } = page(false);
   await element("#form").onsubmit({ preventDefault() {} });
   const row = {
     id: "id",
@@ -613,7 +623,14 @@ test("my subscriptions uses safe text and confirms snapshot updates, reset and d
   await element("#reset-subscription").onclick();
   await element("#delete-subscription").onclick();
   assert.deepEqual(mutations, [
-    ["/api/subscriptions/id", "PUT", { config: "test-config" }],
+    [
+      "/api/subscriptions/id",
+      "PUT",
+      {
+        config: "test-config",
+        source: JSON.stringify(requests[0].values, null, 2),
+      },
+    ],
     ["/api/subscriptions/id/reset", "POST", {}],
     ["/api/subscriptions/id", "DELETE", {}],
   ]);
@@ -627,6 +644,8 @@ test("my subscriptions uses safe text and confirms snapshot updates, reset and d
 
 test("recovery import and rotation clear entered secrets and support manual export", async () => {
   const { context, element } = page(false);
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.equal(element("#publish").disabled, false);
   const calls = [];
   context.confirm = () => true;
   context.localStorage.setItem = () => {
@@ -651,6 +670,8 @@ test("recovery import and rotation clear entered secrets and support manual expo
   await element("#import-recovery").onclick();
   assert.equal(element("#import-code").value, "");
   assert.equal(element("#recovery-code").value, "rotated-after-import");
+  assert.equal(element("#publish").disabled, true);
+  assert.equal(element("#file-values").value, "");
   assert.deepEqual(calls.find(([url]) => url.endsWith("/recover"))[1], {
     recovery_code: "one-use-recovery",
   });
@@ -669,6 +690,153 @@ test("recovery import and rotation clear entered secrets and support manual expo
   assert.equal(element("#import-code").value, "");
   assert.equal(element("#recovery-code").value, "new-recovery");
   assert.match(element("#subscription-message").textContent, /恢复码无效/);
+});
+
+test("editing a published source only saves on explicit update or save-as-new", async () => {
+  const { context, element } = page(false);
+  const original = "# exact source\nport: 7890\nproxy_providers: []\n";
+  const row = {
+    id: "existing",
+    name: "家里电脑",
+    url: "/s/original",
+    updated_at: "now",
+    has_source: true,
+  };
+  const calls = [],
+    writes = [];
+  let savedSource = original;
+  context.confirm = () => true;
+  context.localStorage.setItem = (key, value) => writes.push([key, value]);
+  context.fetch = async (url, options) => {
+    const body = options.body && JSON.parse(options.body);
+    calls.push([url, options.method, body]);
+    let result;
+    if (url === "/api/identity") result = {};
+    else if (url.endsWith("/source"))
+      result = { id: row.id, name: row.name, source: savedSource };
+    else if (url === "/api/subscriptions" && options.method === "GET")
+      result = { subscriptions: [row] };
+    else if (url === "/api/generate")
+      result = { config: "last-generated-config", source: body.values };
+    else if (options.method === "PUT") {
+      savedSource = body.source;
+      row.name = body.name;
+      result = { ...row };
+    } else if (options.method === "POST")
+      result = { ...row, id: "new", name: body.name, url: "/s/new" };
+    return { ok: true, json: async () => result };
+  };
+  await element("#my-subscriptions").onclick();
+  await element("#edit-subscription").onclick();
+  assert.equal(element("#file-values").value, original);
+  assert.equal(element("#editing-name").textContent, row.name);
+  assert.equal(element("#editing-state").hidden, false);
+  assert.equal(element("#form-editor").disabled, true);
+  const updated = original + "# next published source\n";
+  element("#file-values").value = updated;
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.equal(savedSource, original, "generation is not publication");
+  assert.equal(element("#publish").textContent, "更新原订阅");
+  assert.equal(element("#publish-new").hidden, false);
+  element("#file-values").value = "un-generated editor changes";
+  element("#publish-name").value = "更新的名称";
+  await element("#publish").onclick();
+  assert.equal(
+    savedSource,
+    updated,
+    "source must match the generated preview, not current editor",
+  );
+  assert.equal(element("#published-url").value, "/s/original");
+  assert.deepEqual(
+    calls.find(([, method]) => method === "PUT"),
+    [
+      "/api/subscriptions/existing",
+      "PUT",
+      { config: "last-generated-config", source: updated, name: "更新的名称" },
+    ],
+  );
+  element("#publish-name").value = "副本";
+  await element("#publish-new").onclick();
+  assert.equal(element("#published-url").value, "/s/new");
+  assert.equal(element("#editing-name").textContent, "副本");
+  assert.equal(
+    savedSource,
+    updated,
+    "save-as-new leaves original source untouched",
+  );
+  assert.ok(
+    writes.every(([key]) => ["mihomo-mode", "mihomo-theme"].includes(key)),
+  );
+  assert.doesNotMatch(
+    script,
+    /localStorage\.(getItem|setItem)\(['"]mihomo-values/,
+  );
+  await element("#exit-editing").onclick();
+  assert.equal(element("#editing-state").hidden, true);
+  assert.equal(element("#publish").disabled, true);
+});
+
+test("legacy subscriptions without source enter explicit source-entry mode, never reverse-convert config", async () => {
+  const { context, element } = page(false);
+  const row = {
+    id: "legacy",
+    name: "旧配置",
+    url: "/s/legacy",
+    has_source: false,
+    updated_at: "old",
+  };
+  context.confirm = () => true;
+  context.fetch = async (url) => ({
+    ok: true,
+    json: async () =>
+      url.endsWith("/source")
+        ? { id: row.id, name: row.name, source: null }
+        : url === "/api/subscriptions"
+          ? { subscriptions: [row] }
+          : {},
+  });
+  await element("#my-subscriptions").onclick();
+  assert.match(
+    element("#subscription-list").children[0].textContent,
+    /未保存源文件/,
+  );
+  await element("#edit-subscription").onclick();
+  assert.equal(element("#file-values").value, "");
+  assert.equal(element("#editing-name").textContent, "旧配置");
+  assert.match(element("#status").textContent, /不能由成品配置反推/);
+  assert.equal(element("#publish").disabled, true);
+});
+
+test("late source loads cannot overwrite a newer generation", async () => {
+  const { context, element } = page(false);
+  const row = { id: "old", name: "old", url: "/s/old", updated_at: "now" };
+  context.confirm = () => true;
+  let finish;
+  context.fetch = async (url) =>
+    url.endsWith("/source")
+      ? new Promise((resolve) => {
+          finish = resolve;
+        })
+      : {
+          ok: true,
+          json: async () =>
+            url === "/api/subscriptions" ? { subscriptions: [row] } : {},
+        };
+  await element("#my-subscriptions").onclick();
+  const editing = element("#edit-subscription").onclick();
+  context.fetch = async () => ({
+    ok: true,
+    json: async () => ({ config: "new preview", source: "port: 7888" }),
+  });
+  await element("#form").onsubmit({ preventDefault() {} });
+  finish({
+    ok: true,
+    json: async () => ({ id: row.id, name: row.name, source: "stale source" }),
+  });
+  await editing;
+  assert.equal(element("#result-config").value, "new preview");
+  assert.notEqual(element("#file-values").value, "stale source");
+  assert.equal(element("#publish").textContent, "发布订阅");
 });
 
 test("IP4P is an opt-in checkbox with a core compatibility notice", () => {
@@ -1004,6 +1172,165 @@ test("suggested built-in groups exactly match generated groups in both modes", a
       config["proxy-groups"].map((group) => group.name).sort(),
     );
   }
+});
+
+test("subscription checkbox choices deduplicate names, render safe text and preserve selections", () => {
+  const { context, element, fields } = page(false, {
+    providers:
+      "main | https://example.com/one\nmain | https://example.com/two\n<img src=x> | https://example.com/safe",
+  });
+  const sources = {
+    children: [],
+    replaceChildren(...children) {
+      this.children = children;
+    },
+  };
+  const card = {
+    dataset: {},
+    querySelector(selector) {
+      return selector === '[name="subscription_group_id"]'
+        ? { value: "7" }
+        : sources;
+    },
+    querySelectorAll() {
+      return sources.children
+        .map((label) => label.children[0])
+        .filter((input) => input.checked);
+    },
+  };
+  element("#subscription-group-entries").querySelectorAll = () => [card];
+  context.document.createElement = (tag) => ({
+    tag,
+    children: [],
+    append(...children) {
+      this.children.push(...children);
+    },
+  });
+  const refresh = () =>
+    context.updateSubscriptionSources(new context.FormData());
+  refresh();
+  assert.deepEqual(
+    sources.children.map((label) => label.children[0].value),
+    ["main", "<img src=x>"],
+  );
+  assert.equal(sources.children[1].children[1].textContent, "<img src=x>");
+  assert.equal(
+    sources.children[0].children[0].name,
+    "subscription_group_sources_7",
+  );
+  assert.ok(
+    sources.children.every((label) => !Object.hasOwn(label, "innerHTML")),
+  );
+  const original = sources.children[0];
+  original.children[0].checked = true;
+  refresh();
+  assert.equal(
+    sources.children[0],
+    original,
+    "unchanged sources must not replace focused checkbox DOM",
+  );
+  fields.providers += "\nbackup | https://example.com/backup";
+  refresh();
+  assert.equal(sources.children[0].children[0].checked, true);
+  assert.equal(sources.children[2].children[0].checked, false);
+  fields.providers = "backup | https://example.com/backup";
+  refresh();
+  assert.deepEqual(
+    sources.children.map((label) => label.children[0].value),
+    ["backup"],
+  );
+});
+
+test("checked subscription sources join my_proxy or a new group without editing YAML", async () => {
+  const { element, requests } = page(false, {
+    providers:
+      "main | https://example.com/one.yaml\nmain | https://example.com/two.yaml\nbackup | https://example.com/backup.yaml",
+    subscription_group_id: ["1", "2"],
+    subscription_group_name: ["my_proxy", "combined"],
+    subscription_group_sources_1: ["main"],
+    subscription_group_sources_2: ["main", "backup"],
+    group_rules: "combined: DOMAIN-SUFFIX,group.example",
+  });
+  assert.match(html, /把订阅节点加入分组/);
+  assert.match(html, /data-select-all/);
+  assert.ok(
+    element("#subscription-group-targets").children.some(
+      (option) => option.value === "my_proxy",
+    ),
+  );
+  assert.ok(
+    element("#policy-targets").children.some(
+      (option) => option.value === "combined",
+    ),
+  );
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.deepEqual(requests[0].values.group_providers, {
+    my_proxy: ["main"],
+    combined: ["main", "backup"],
+  });
+  const config = renderConfig(requests[0].values);
+  const mine = config["proxy-groups"].find(
+    (group) => group.name === "my_proxy",
+  );
+  assert.deepEqual(mine.use, ["main", "main__2"]);
+  assert.deepEqual(mine.proxies, []);
+  assert.deepEqual(
+    config["proxy-groups"].find((group) => group.name === "combined").use,
+    ["main", "main__2", "backup"],
+  );
+  assert.ok(
+    config["proxy-groups"]
+      .find((group) => group.name === "final")
+      .proxies.includes("combined"),
+  );
+  assert.ok(config.rules.includes("DOMAIN-SUFFIX,group.example,combined"));
+});
+
+test("subscription cards targeting the same group combine their checkbox selections", async () => {
+  const { element, requests } = page(false, {
+    providers: "a | https://example.com/a\nb | https://example.com/b",
+    subscription_group_id: ["1", "3"],
+    subscription_group_name: ["my_proxy", "my_proxy"],
+    subscription_group_sources_1: ["a"],
+    subscription_group_sources_3: ["a", "b"],
+  });
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.deepEqual(requests[0].values.group_providers, {
+    my_proxy: ["a", "b"],
+  });
+});
+
+test("empty or stale subscription selections fail before sending a request", async () => {
+  for (const selected of [[], ["removed"]]) {
+    const { element, requests } = page(false, {
+      providers: "main | https://example.com/a",
+      subscription_group_id: ["1"],
+      subscription_group_name: ["my_proxy"],
+      subscription_group_sources_1: selected,
+    });
+    await element("#form").onsubmit({ preventDefault() {} });
+    assert.equal(requests.length, 0);
+    assert.match(element("#status").textContent, /勾选至少一个当前订阅/);
+  }
+});
+
+test("custom group names are dictionary keys rather than JavaScript prototypes", async () => {
+  const { element, requests } = page(false, {
+    providers: "main | https://example.com/a",
+    subscription_group_id: ["1"],
+    subscription_group_name: ["__proto__"],
+    subscription_group_sources_1: ["main"],
+    group_rules: "__proto__: DOMAIN-SUFFIX,safe.example",
+  });
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.equal(requests.length, 1);
+  assert.equal(
+    Object.hasOwn(requests[0].values.group_providers, "__proto__"),
+    true,
+  );
+  assert.deepEqual(requests[0].values.group_rules.__proto__, [
+    "DOMAIN-SUFFIX,safe.example",
+  ]);
 });
 
 test("same-name subscription rows merge every source and deduplicate exact repeats end to end", async () => {

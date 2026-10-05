@@ -236,6 +236,46 @@ class TemplateContext
     @provider_names ||= proxy_providers.map { |provider| provider.fetch('name') }
   end
 
+  # Attach all nodes from selected subscriptions via Mihomo's native `use`.
+  # Existing groups retain their policy; new groups are ordinary node selectors.
+  def configure_group_providers(output)
+    selections = @values['group_providers']
+    return output if selections.nil? || selections == {}
+
+    unless selections.is_a?(Hash)
+      warn 'group_providers must be a mapping of group names to subscription name arrays'
+      exit 1
+    end
+    config = Psych.safe_load(output, permitted_classes: [], aliases: true)
+    groups = config.fetch('proxy-groups')
+    reserved = %w[DIRECT REJECT REJECT-DROP PASS COMPATIBLE GLOBAL] + config.fetch('proxies', []).map { |node| node.fetch('name') }
+    selections.each do |name, subscriptions|
+      unless name.is_a?(String) && !name.strip.empty? && !name.match?(/[\r\n\0]/) && !reserved.include?(name)
+        warn 'group_providers contains an invalid or reserved group name'
+        exit 1
+      end
+      names = normalize_string_array(subscriptions, 'group_providers')
+      if names.empty? || names.any? { |source| !@provider_aliases.key?(source) }
+        warn 'group_providers requires non-empty lists of existing subscription names'
+        exit 1
+      end
+      sources = names.flat_map { |source| @provider_aliases.fetch(source) }.uniq
+      group = groups.find { |entry| entry['name'] == name }
+      unless group
+        group = { 'name' => name, 'type' => 'select', 'proxies' => [], 'empty-fallback' => 'REJECT' }
+        groups << group
+        final = groups.find { |entry| entry['name'] == 'final' }
+        final['proxies'] = (final.fetch('proxies') + [name]).uniq if final
+      end
+      group['use'] = (Array(group['use']) + sources).uniq
+      if name == 'my_proxy' && local_proxy_names.empty? && group['proxies'] == ['DIRECT']
+        group['proxies'] = [] # Prefer the selected subscription nodes, not DIRECT.
+        group['empty-fallback'] = 'DIRECT'
+      end
+    end
+    Psych.dump(config)
+  end
+
   # A logical subscription can have multiple physical providers. Expand explicit
   # use references after final overrides too; leave unrelated names untouched.
   def expand_provider_uses(output)
@@ -712,6 +752,7 @@ values, applied_defaults = apply_defaults(load_yaml_file(options[:values]))
 template = File.read(options[:template])
 context = TemplateContext.new(values)
 output = ERB.new(template, trim_mode: '-').result(context.get_binding)
+output = context.configure_group_providers(output)
 output = append_fake_ip_filter(output, context.fake_ip_filter)
 output = apply_config_overrides(output, values['config_overrides'])
 output = context.expand_provider_uses(output)

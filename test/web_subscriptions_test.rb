@@ -106,6 +106,67 @@ class WebSubscriptionsTest < Minitest::Test
     assert_equal '404', read_url(reset['url']).code
   end
 
+  def test_saved_source_editing_requires_owner_and_explicit_update
+    browser, = identity
+    source = "# original source comments\nproxy_providers: []\nunused: private-source-only\n"
+    before = File.binread(File.join(@directory, 'data/subscriptions.json'))
+    generated = json(request('POST', '/api/generate', { values: source }))
+    assert_equal source, generated['source']
+    assert_equal before, File.binread(File.join(@directory, 'data/subscriptions.json')), 'generation must not save source'
+    created = request('POST', '/api/subscriptions', { name: '电脑配置', config: generated['config'], source: source }, cookie: browser)
+    assert_equal '201', created.code
+    row = json(created)
+    id = row.fetch('id')
+    assert_equal '电脑配置', row['name']
+    assert_equal true, row['has_source']
+    assert_equal source, json(request('GET', "/api/subscriptions/#{id}/source", cookie: browser))['source']
+    assert_equal generated['config'].b, read_url(row['url']).body.b
+    refute_includes read_url(row['url']).body, 'private-source-only'
+    assert_equal '401', request('GET', "/api/subscriptions/#{id}/source").code
+    second, = identity
+    forbidden = request('GET', "/api/subscriptions/#{id}/source", cookie: second)
+    assert_equal '404', forbidden.code
+    assert_equal forbidden.body, request('GET', "/api/subscriptions/#{'0' * 64}/source", cookie: second).body
+    assert_equal '404', request('PATCH', "/api/subscriptions/#{id}", { name: 'other' }, cookie: second).code
+    assert_equal '401', request('GET', "/api/subscriptions/#{id}/source", cookie: "mihomo_session=#{row['url'].split('/').last}").code
+    saved = File.binread(File.join(@directory, 'data/subscriptions.json'))
+    assert_equal '403', request('PATCH', "/api/subscriptions/#{id}", { name: 'wrong-origin' }, cookie: browser, headers: { 'Origin' => 'https://evil.example' }).code
+    assert_equal saved, File.binread(File.join(@directory, 'data/subscriptions.json'))
+    next_source = "proxy_providers: []\nport: 7888\n"
+    next_generation = json(request('POST', '/api/generate', { values: next_source }))
+    assert_equal saved, File.binread(File.join(@directory, 'data/subscriptions.json'))
+    updated = json(request('PUT', "/api/subscriptions/#{id}", { name: '新名称', source: next_source, config: next_generation['config'] }, cookie: browser))
+    assert_equal row['url'], updated['url']
+    assert_equal next_generation['config'].b, read_url(row['url']).body.b
+    renamed = json(request('PATCH', "/api/subscriptions/#{id}", { name: '<img src=x>' }, cookie: browser))
+    assert_equal '<img src=x>', renamed['name']
+    assert_equal row['url'], renamed['url']
+    saved = File.binread(File.join(@directory, 'data/subscriptions.json'))
+    invalid = request('PUT', "/api/subscriptions/#{id}", { name: 'not saved', source: 'invalid-secret: [', config: CONFIG }, cookie: browser)
+    assert_equal '422', invalid.code
+    refute_includes invalid.body, 'invalid-secret'
+    assert_equal saved, File.binread(File.join(@directory, 'data/subscriptions.json'))
+    stop_server
+    start_server
+    response = request('GET', "/api/subscriptions/#{id}/source", cookie: browser)
+    assert_equal next_source, json(response)['source']
+    assert_equal 'private, no-store', response['cache-control']
+    refute_includes File.read(File.join(@directory, 'data/subscriptions.json')), 'private-source-only'
+    refute_includes File.read(File.join(@directory, 'log')), source
+  end
+
+  def test_legacy_transient_downloads_never_expose_input_source
+    source = "proxy_providers: []\nunused: legacy-source-only\n"
+    created = request('POST', '/api/v1/configs', { values: source })
+    assert_equal '201', created.code
+    row = json(created)
+    refute row.key?('source')
+    fetched = request('GET', "/api/v1/configs/#{row['id']}")
+    refute json(fetched).key?('source')
+    refute_includes fetched.body, 'legacy-source-only'
+    refute_includes request('GET', row['download_url']).body, 'legacy-source-only'
+  end
+
   def test_owner_isolation_and_read_token_is_not_management_authentication
     first, = identity
     second, = identity

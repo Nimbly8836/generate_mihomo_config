@@ -60,7 +60,7 @@ def generate_config(values)
     raise WebError.new(422, '生成失败，请检查配置参数') unless status.success?
     raise WebError.new(422, '生成的配置过大') if File.size(output_path) > SubscriptionStore::MAX_CONFIG
 
-    { 'config' => File.read(output_path), 'message' => '生成成功' }
+    { 'config' => File.read(output_path), 'source' => values_yaml, 'message' => '生成成功' }
   end
 end
 
@@ -119,13 +119,17 @@ loop do
                elsif method == 'GET' && path == '/api/subscriptions'
                  json_response.call(200, 'subscriptions' => subscriptions.list(session).map { |row| public_summary.call(row) })
                elsif method == 'POST' && path == '/api/subscriptions'
-                 row = subscriptions.change(session, :create, nil, payload.call['config'])
+                 input = payload.call
+                 row = subscriptions.change(session, :create, nil, input['config'], name: input['name'], source: input['source'])
                  json_response.call(201, public_summary.call(row))
+               elsif method == 'GET' && (match = %r{\A/api/subscriptions/([a-f0-9]{64})/source\z}.match(path))
+                 json_response.call(200, subscriptions.source(session, match[1]))
                elsif (match = %r{\A/api/subscriptions/([a-f0-9]{64})(/reset)?\z}.match(path))
-                 action = { ['PUT', nil] => :update, ['DELETE', nil] => :delete, ['POST', '/reset'] => :reset }[[method, match[2]]]
+                 action = { ['PUT', nil] => :update, ['PATCH', nil] => :rename, ['DELETE', nil] => :delete, ['POST', '/reset'] => :reset }[[method, match[2]]]
                  raise WebError.new(405, '请求方法不支持') unless action
 
-                 row = subscriptions.change(session, action, match[1], payload.call['config'])
+                 input = payload.call
+                 row = subscriptions.change(session, action, match[1], input['config'], name: input['name'], source: input['source'])
                  json_response.call(200, action == :delete ? row : public_summary.call(row))
                elsif method == 'GET' && (match = %r{\A/s/([a-f0-9]{64})\z}.match(path))
                  http_response(200, 'application/yaml; charset=utf-8', subscriptions.read(match[1]),
@@ -138,7 +142,8 @@ loop do
                elsif method == 'GET' && path == '/api/v1/health'
                  json_response.call(200, 'status' => 'ok', 'service' => 'mihomo-config-generator')
                elsif method == 'POST' && path == '/api/v1/configs'
-                 result = generate_config(JSON.parse(body).fetch('values'))
+                 # Legacy transient download/read URLs must not expose values.yaml.
+                 result = generate_config(JSON.parse(body).fetch('values')).reject { |key, _| key == 'source' }
                  id = SecureRandom.hex(12)
                  generated_configs.shift while generated_configs.size >= 32
                  generated_configs[id] = result

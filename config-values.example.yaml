@@ -45,6 +45,13 @@ proxy_providers:
     interval: 7200
     # proxy: proxy  # 默认 DIRECT；有需要时显式改为代理组
 
+# 把所选订阅中的节点加入已有组或汇总到新组。填写订阅 name，同名来源一起加入。
+# Web 页面可直接勾选；空映射保持默认行为。
+group_providers: {}
+# group_providers:
+#   my_proxy: [main]
+#   combined: [main, backup]  # 新建 select 组，并加入 final
+
 # 手写节点只进入 my_proxy，不加入地区组；my_proxy 为空时回退 DIRECT
 local_proxies:
   - name: local_ss
@@ -54,7 +61,7 @@ local_proxies:
     cipher: aes-128-gcm
     password: change-me
 
-# WG 内网快速配置：自动生成独立分组和规则，不进入普通代理出口。
+# WG 内网快速配置：自动生成独立分组和规则；final 可手动选择，默认不走 WG。
 # 将下面的注释示例取消注释，并替换 wireguard: []；密钥占位符必须换成真实值。
 wireguard: []
 # wireguard:

@@ -63,8 +63,9 @@ class SubscriptionStoreTest < Minitest::Test
       rule_defaults: &rules ["MATCH,proxy"]
       rules: *rules
     YAML
-    row = @store.change(@session, :create, nil, config)
+    row = @store.change(@session, :create, nil, config, source: config)
     assert_equal config, @store.read(row['token'])
+    assert_equal config, @store.source(@session, row['id'])['source']
   end
 
   def test_complex_mapping_keys_cycles_and_alias_amplification_are_rejected_promptly
@@ -83,12 +84,15 @@ class SubscriptionStoreTest < Minitest::Test
     payloads.each_with_index do |payload, index|
       status = nil
       pid = fork do
-        begin
-          @store.validate_config(payload)
-          exit! 1
-        rescue WebError => error
-          exit!(error.status == 422 ? 0 : 2)
+        %i[validate_config validate_source].each do |validator|
+          begin
+            @store.send(validator, payload)
+            exit! 1
+          rescue WebError => error
+            exit! 2 unless error.status == 422
+          end
         end
+        exit! 0
       end
       begin
         _pid, status = Timeout.timeout(2) { Process.wait2(pid) }
@@ -108,6 +112,52 @@ class SubscriptionStoreTest < Minitest::Test
         end
       end
     end
+  end
+
+  def test_named_source_is_owner_only_and_replaced_atomically_without_history
+    source = "# keep original formatting\nproxy_providers: []\nunused: old-source-only-secret\n"
+    row = @store.change(@session, :create, nil, CONFIG, name: '家里电脑', source: source)
+    assert_equal '家里电脑', row['name']
+    assert_equal true, row['has_source']
+    assert_equal source, @store.source(@session, row['id'])['source']
+    refute @store.list(@session).first.key?('source')
+    assert_equal CONFIG, @store.read(row['token'])
+    other, = @store.identity(nil)
+    assert_equal 404, assert_raises(WebError) { @store.source(other, row['id']) }.status
+    assert_equal 401, assert_raises(WebError) { @store.source(row['token'], row['id']) }.status
+    assert_equal source, SubscriptionStore.new(@directory).source(@session, row['id'])['source']
+    updated_source = "proxy_providers: []\nport: 7888\n"
+    updated = @store.change(@session, :update, row['id'], CONFIG + "# changed\n", name: '新名称', source: updated_source)
+    assert_equal row['token'], updated['token']
+    assert_equal updated_source, @store.source(@session, row['id'])['source']
+    refute_includes File.read(File.join(@directory, 'subscriptions.json')), 'old-source-only-secret'
+    renamed = @store.change(@session, :rename, row['id'], name: '最终名称')
+    assert_equal row['token'], renamed['token']
+    assert_equal updated_source, @store.source(@session, row['id'])['source']
+    original = File.binread(File.join(@directory, 'subscriptions.json'))
+    ['bad: [', '[]', ' ', 'x' * (SubscriptionStore::MAX_SOURCE + 1), "loop: &loop [*loop]\n"].each do |bad|
+      assert_raises(WebError) { @store.change(@session, :update, row['id'], CONFIG, source: bad) }
+      assert_equal original, File.binread(File.join(@directory, 'subscriptions.json'))
+    end
+    ['', 123, 'x' * 81, "bad\nname"].each do |bad|
+      assert_raises(WebError) { @store.change(@session, :rename, row['id'], name: bad) }
+      assert_equal original, File.binread(File.join(@directory, 'subscriptions.json'))
+    end
+  end
+
+  def test_legacy_records_load_and_config_only_updates_clear_stale_sources
+    row = @store.change(@session, :create, nil, CONFIG)
+    @store.transaction(write: true) do |data|
+      data['subscriptions'][row['id']].delete('name')
+      data['subscriptions'][row['id']].delete('source')
+    end
+    store = SubscriptionStore.new(@directory)
+    assert_equal '未命名配置', store.list(@session).first['name']
+    assert_nil store.source(@session, row['id'])['source']
+    store.change(@session, :update, row['id'], CONFIG, source: 'proxy_providers: []')
+    store.change(@session, :update, row['id'], CONFIG + '# from legacy client')
+    assert_nil store.source(@session, row['id'])['source']
+    assert_equal false, store.list(@session).first['has_source']
   end
 
   def test_owner_limit_and_subscription_limit

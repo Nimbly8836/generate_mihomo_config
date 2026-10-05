@@ -159,6 +159,7 @@
   </header>
   <div class="mode-switch" role="group" aria-label="配置输入方式"><button type="button" id="form-mode" class="active">直接填写参数</button><button type="button" id="file-mode">编辑配置文件</button></div>
   <form id="form">
+    <div id="editing-state" class="hint" hidden>正在编辑：<strong id="editing-name"></strong> <button id="exit-editing" type="button">退出编辑</button></div>
     <fieldset id="form-editor" aria-label="配置参数">
       <nav class="section-nav" aria-label="配置区域导航">
         <p class="nav-heading">配置导航</p>
@@ -174,7 +175,15 @@
         <label>Web 密钥<input name="web_secret" placeholder="留空自动生成"></label>
       </div>
       </section>
-      <section id="subscriptions"><header class="section-header"><h2>节点订阅</h2></header><p id="providers-hint" class="hint">每行：名称 | URL | 前缀；前缀可省略。URL 请填写 Clash 类型的订阅链接。同名订阅自动合并来源，完全重复的条目只保留一份。</p><textarea name="providers" aria-label="节点订阅列表" aria-describedby="providers-hint" placeholder="main | https://example.com/sub.yaml | Main"></textarea></section>
+      <section id="subscriptions"><header class="section-header"><h2>节点订阅</h2></header><p id="providers-hint" class="hint">每行：名称 | URL | 前缀；前缀可省略。URL 请填写 Clash 类型的订阅链接。同名订阅自动合并来源，完全重复的条目只保留一份。</p><textarea name="providers" aria-label="节点订阅列表" aria-describedby="providers-hint" placeholder="main | https://example.com/sub.yaml | Main"></textarea>
+        <details id="subscription-group-settings">
+          <summary>把订阅节点加入分组</summary>
+          <p class="hint">选择目标组并勾选订阅，所选订阅的节点会一起加入该组；同名来源一起选择。可使用 my_proxy 或输入新组名，不需要手写 YAML。已有组的节点和筛选条件保留。</p>
+          <div id="subscription-group-entries"></div>
+          <button type="button" id="add-subscription-group">添加分组</button>
+          <datalist id="subscription-group-targets"></datalist>
+        </details>
+      </section>
       <details id="advanced-settings">
         <summary>高级配置<span class="advanced-description">实验功能、WireGuard、自定义规则和外部规则集（可选）</span></summary>
         <div class="sections">
@@ -184,7 +193,7 @@
         <p id="ip4p-hint" class="hint">仅影响表单模式。需要支持 dialer-ip4p-convert 的 Mihomo 核心；不会自动开启 IPv6 或修改 WG 节点。YAML 模式请使用 config_overrides 配置。</p>
       </section>
       <section id="wireguard">
-        <header class="section-header"><div><h2>WireGuard 内网节点</h2><p class="hint">独立内网通道，不混入普通代理出口。</p></div></header>
+        <header class="section-header"><div><h2>WireGuard 内网节点</h2><p class="hint">默认只处理内网规则；final 可手动选择，不会默认选中 WG。</p></div></header>
         <details><summary>节点命名、规则优先级与密钥说明</summary><p class="hint">点击添加后填写节点参数。每条配置自动生成 wg_名称 分组和内网规则；手写规则仍优先。移除卡片可取消该节点。密钥不会写入浏览器本地存储，但会包含在下载的配置中。</p></details>
         <div id="wg-entries"></div>
         <button type="button" id="add-wg">添加 WG 节点</button>
@@ -219,8 +228,8 @@
       </details>
       </div>
     </fieldset>
-    <div id="file-editor" hidden><section><header class="section-header editor-header"><div><h2>values.yaml</h2><p class="hint">生成时会在当前浏览器保存编辑内容；含密钥时请勿使用共享设备。</p></div><button id="open-reference" type="button">参考配置</button></header><textarea id="file-values" aria-label="完整 values.yaml 配置" spellcheck="false"></textarea><p class="hint">Tab / Shift+Tab：调整两空格缩进；Esc：返回生成按钮。</p></section></div>
-    <div class="form-actions"><p class="hint">生成后下载配置，再导入 Mihomo 使用。</p><div class="action-buttons"><button id="my-subscriptions" type="button">我的订阅</button><button id="generate" type="submit">生成配置</button></div><pre id="status" role="alert" hidden></pre></div>
+    <div id="file-editor" hidden><section><header class="section-header editor-header"><div><h2>values.yaml</h2><p class="hint">不会自动保存；手动发布或更新订阅时才保存源配置。刷新页面会丢失未发布的修改。</p></div><button id="open-reference" type="button">参考配置</button></header><textarea id="file-values" aria-label="完整 values.yaml 配置" spellcheck="false"></textarea><p class="hint">Tab / Shift+Tab：调整两空格缩进；Esc：返回生成按钮。</p></section></div>
+    <div class="form-actions"><p class="hint">生成后下载配置，再导入 Mihomo 使用。</p><div class="action-buttons"><button id="my-subscriptions" type="button">我的配置订阅</button><button id="generate" type="submit">生成配置</button></div><pre id="status" role="alert" hidden></pre></div>
   </form>
   <footer class="page-footer">仅生成配置 · 实际代理连接由 Mihomo 核心处理</footer>
   </main>
@@ -230,8 +239,9 @@
     <p id="result-note" class="hint">配置已生成，可以复制或直接下载。内容可能包含密钥，请妥善保管。</p>
     <label for="result-config">config.yaml</label>
     <textarea id="result-config" readonly wrap="off" spellcheck="false"></textarea>
-    <div class="dialog-actions"><button id="result-subscriptions" type="button">我的订阅 / 恢复码</button><button id="publish" type="button" disabled>发布订阅</button><button id="copy-config" type="button">复制配置</button><button id="download" type="button" disabled>下载配置</button></div>
-    <p class="hint">发布仅保存本次预览，不会重新生成密钥。链接可读取完整配置，知悉链接者均可下载；请勿公开分享。</p>
+    <label>配置名称<input id="publish-name" maxlength="80" placeholder="例如：家里电脑"></label>
+    <div class="dialog-actions"><button id="result-subscriptions" type="button">我的配置订阅</button><button id="publish" type="button" disabled>发布订阅</button><button id="publish-new" type="button" hidden disabled>另存为新订阅</button><button id="copy-config" type="button">复制配置</button><button id="download" type="button" disabled>下载配置</button></div>
+    <p class="hint">手动发布或更新时保存本次预览及对应源配置，只保留最后一次发布内容。订阅链接只能下载成品配置，不能读取源文件或管理订阅；请仅分享给可信对象。</p>
     <div id="published" hidden><label>订阅链接<input id="published-url" readonly></label><button id="copy-published" type="button">复制链接</button></div>
     <p id="publish-message" class="hint" role="status" hidden></p>
     <p id="copy-message" class="hint" role="status" aria-live="polite" hidden></p>
@@ -246,17 +256,18 @@
   </dialog>
 
   <dialog id="subscription-dialog" aria-labelledby="subscription-title">
-    <div class="dialog-header"><h2 id="subscription-title">我的订阅</h2><button id="close-subscriptions" type="button">关闭</button></div>
-    <p class="hint">当前浏览器自动持有管理身份，无需登录。订阅链接只读，不能管理订阅。更新使用最近一次成功生成的完整配置，不读取当前表单。</p>
-    <label>已发布订阅<select id="subscription-list" aria-label="已发布订阅"></select></label>
+    <div class="dialog-header"><h2 id="subscription-title">我的配置订阅</h2><button id="close-subscriptions" type="button">关闭</button></div>
+    <p class="hint">选择已发布配置，点击编辑加载源文件。修改后须重新生成并手动更新才会生效，原订阅链接不变。无需注册，当前浏览器只能管理自己的配置。</p>
+    <label>已发布配置<select id="subscription-list" aria-label="已发布配置" size="4"></select></label>
     <label>只读订阅链接<input id="subscription-url" readonly></label>
-    <div class="action-buttons"><button id="copy-subscription" type="button" disabled>复制链接</button><button id="update-subscription" type="button" disabled>用最新生成配置更新</button><button id="reset-subscription" type="button" disabled>重置链接</button><button id="delete-subscription" type="button" disabled>删除订阅</button></div>
-    <h3>身份恢复</h3>
+    <div class="action-buttons"><button id="edit-subscription" type="button" disabled>编辑源配置</button><button id="copy-subscription" type="button" disabled>复制链接</button></div>
+    <details><summary>更多操作</summary><div class="action-buttons"><button id="rename-subscription" type="button" disabled>重命名</button><button id="update-subscription" type="button" disabled>用最新生成配置更新</button><button id="reset-subscription" type="button" disabled>重置链接</button><button id="delete-subscription" type="button" disabled>删除订阅</button></div></details>
+    <details id="recovery-settings"><summary>身份与恢复码</summary>
     <p class="hint">恢复码是管理密钥，请离线保存。清除 Cookie 或换浏览器后可导入。恢复会注销旧浏览器身份并换发一次性恢复码；生成新码也会立即废弃旧码。Cookie 和恢复码均丢失后无法再管理。</p>
     <label>新恢复码（仅本次显示，请复制保存）<input id="recovery-code" readonly autocomplete="off" spellcheck="false"></label>
     <div class="action-buttons"><button id="copy-recovery" type="button" disabled>复制 / 导出恢复码</button><button id="rotate-recovery" type="button">生成新恢复码</button></div>
     <label>导入恢复码<input id="import-code" type="password" autocomplete="off" spellcheck="false"></label>
-    <button id="import-recovery" type="button">恢复身份</button>
+    <button id="import-recovery" type="button">恢复身份</button></details>
     <p id="subscription-message" class="hint" role="status" aria-live="polite" hidden></p>
   </dialog>
 
@@ -285,6 +296,16 @@
       <button type="button" data-remove>移除此 WG 节点</button>
     </fieldset>
   </template>
+  <template id="subscription-group-template">
+    <fieldset class="entry-card" data-entry data-subscription-group>
+      <legend>订阅节点分组</legend>
+      <input type="hidden" name="subscription_group_id">
+      <label>目标分组（可输入新名称）<input name="subscription_group_name" list="subscription-group-targets" value="my_proxy" placeholder="my_proxy 或自定义名称" required></label>
+      <p class="hint">勾选要加入的订阅；无需填写订阅 URL 或内部编号。</p>
+      <div data-subscription-sources></div>
+      <div class="action-buttons"><button type="button" data-select-all>全选</button><button type="button" data-remove>移除此分组设置</button></div>
+    </fieldset>
+  </template>
   <template id="rule-template">
     <fieldset class="entry-card" data-entry>
       <legend>外部规则集</legend>
@@ -308,11 +329,14 @@
     const formMode = document.querySelector('#form-mode'), fileMode = document.querySelector('#file-mode'), themeToggle = document.querySelector('#theme-toggle'), generate = document.querySelector('#generate'), download = document.querySelector('#download');
     const resultDialog = document.querySelector('#result-dialog'), resultConfig = document.querySelector('#result-config'), copyConfig = document.querySelector('#copy-config'), copyMessage = document.querySelector('#copy-message');
     const referenceButton = document.querySelector('#open-reference'), referenceDialog = document.querySelector('#reference-dialog'), referenceValues = document.querySelector('#reference-values'), referenceCopy = document.querySelector('#copy-reference'), referenceMessage = document.querySelector('#reference-message');
-    let yamlEditor = null;
+    let yamlEditor = null, subscriptionGroupSequence = 0;
+    const subscriptionGroupSettings = document.querySelector('#subscription-group-settings');
+    const subscriptionGroupEntries = document.querySelector('#subscription-group-entries');
     const advancedSettings = document.querySelector('#advanced-settings');
     document.querySelector('#advanced-link').onclick = () => { advancedSettings.open = true; };
     form.addEventListener('invalid', event => {
       if (advancedSettings.contains(event.target)) advancedSettings.open = true;
+      if (subscriptionGroupSettings.contains(event.target)) subscriptionGroupSettings.open = true;
     }, true);
     let config = '', mode = localStorage.getItem('mihomo-mode') || 'form';
     const regions = ['hk', 'jp', 'tw', 'sg', 'us', 'kr', 'eu', 'others'];
@@ -326,7 +350,7 @@
     function setTheme(theme) { const light = theme === 'light'; document.documentElement.classList.toggle('light', light); localStorage.setItem('mihomo-theme', theme); themeToggle.textContent = light ? '🌙' : '☀️'; themeToggle.title = light ? '切换到黑夜模式' : '切换到白天模式'; themeToggle.setAttribute('aria-label', themeToggle.title); }
     themeToggle.onclick = () => setTheme(document.documentElement.classList.contains('light') ? 'dark' : 'light');
     setTheme(localStorage.getItem('mihomo-theme') || 'dark');
-    fileValues.value = localStorage.getItem('mihomo-values') || 'proxy_providers: []\nlocal_proxies: []\nwireguard: []\ncustom_rule_providers: []\nlocal_rules: []\nproxy_rules: []\ndirect_rules: []\ngroup_rules: {}\n';
+    fileValues.value = 'proxy_providers: []\nlocal_proxies: []\nwireguard: []\ncustom_rule_providers: []\nlocal_rules: []\nproxy_rules: []\ndirect_rules: []\ngroup_rules: {}\n';
     function refreshYamlEditor() {
       if (!yamlEditor && typeof CodeMirror !== 'undefined') {
         yamlEditor = CodeMirror.fromTextArea(fileValues, {
@@ -356,7 +380,8 @@
 
     function targetNames(data) {
       const wgGroups = data.getAll('wg_name').map(name => String(name).trim()).filter(validName).map(name => `wg_${name}`);
-      return [...baseGroups, ...(data.get('group_mode') === 'detailed' ? detailedGroups : []), ...autoGroups, 'DIRECT', 'REJECT', ...wgGroups];
+      const subscriptionGroups = data.getAll('subscription_group_name').map(name => String(name).trim()).filter(Boolean);
+      return [...new Set([...baseGroups, ...(data.get('group_mode') === 'detailed' ? detailedGroups : []), ...autoGroups, 'DIRECT', 'REJECT', ...wgGroups, ...subscriptionGroups])];
     }
     function updateGroupHelp() {
       const data = new FormData(form);
@@ -367,6 +392,53 @@
       document.querySelector('#auto-group-help').textContent = autoGroups.join('、');
       const options = targetNames(data).map(name => { const option = document.createElement('option'); option.value = name; return option; });
       document.querySelector('#policy-targets').replaceChildren(...options);
+      const groups = targetNames(data).filter(name => !['DIRECT', 'REJECT'].includes(name));
+      document.querySelector('#subscription-group-targets').replaceChildren(...groups.map(name => { const option = document.createElement('option'); option.value = name; return option; }));
+      updateSubscriptionSources(data);
+    }
+    function subscriptionNames(data) {
+      return [...new Set(lines(data.get('providers')).map(line => line.split('|')[0].trim()).filter(Boolean))];
+    }
+    function updateSubscriptionSources(data) {
+      const names = subscriptionNames(data), signature = JSON.stringify(names);
+      for (const card of subscriptionGroupEntries.querySelectorAll('[data-subscription-group]')) {
+        if (card.dataset.sources === signature) continue;
+        const checked = new Set([...card.querySelectorAll('input[type="checkbox"]:checked')].map(input => input.value));
+        const id = card.querySelector('[name="subscription_group_id"]').value;
+        const choices = names.map(name => {
+          const label = document.createElement('label'); label.className = 'checkbox';
+          const input = document.createElement('input'); input.type = 'checkbox';
+          input.name = `subscription_group_sources_${id}`; input.value = name; input.checked = checked.has(name);
+          const text = document.createElement('span'); text.textContent = name;
+          label.append(input, text); return label;
+        });
+        if (!choices.length) { const hint = document.createElement('p'); hint.className = 'hint'; hint.textContent = '请先在上方填写节点订阅。'; choices.push(hint); }
+        card.querySelector('[data-subscription-sources]').replaceChildren(...choices);
+        card.dataset.sources = signature;
+      }
+    }
+    document.querySelector('#add-subscription-group').onclick = () => {
+      const card = document.querySelector('#subscription-group-template').content.firstElementChild.cloneNode(true);
+      card.querySelector('[name="subscription_group_id"]').value = String(++subscriptionGroupSequence);
+      subscriptionGroupEntries.append(card); updateGroupHelp();
+      card.querySelector('[name="subscription_group_name"]').focus();
+    };
+    subscriptionGroupEntries.onclick = event => {
+      const card = event.target.closest('[data-subscription-group]');
+      if (!card) return;
+      if (event.target.matches('[data-remove]')) { card.remove(); updateGroupHelp(); }
+      if (event.target.matches('[data-select-all]')) card.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = true; });
+    };
+    function readGroupProviders(data) {
+      const groups = Object.create(null), available = new Set(subscriptionNames(data));
+      data.getAll('subscription_group_name').forEach((raw, index) => {
+        const name = String(raw).trim(), id = textAt(data, 'subscription_group_id', index);
+        if (!name || /[\r\n\0]/.test(name) || ['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'COMPATIBLE', 'GLOBAL'].includes(name)) throw new Error(`订阅分组第 ${index + 1} 项请填写有效的目标组名`);
+        const selected = data.getAll(`subscription_group_sources_${id}`);
+        if (!selected.length || selected.some(source => !available.has(source))) throw new Error(`订阅分组第 ${index + 1} 项请勾选至少一个当前订阅`);
+        groups[name] = [...new Set([...(groups[name] || []), ...selected])];
+      });
+      return groups;
     }
     formEditor.oninput = updateGroupHelp;
     formEditor.onchange = updateGroupHelp;
@@ -464,7 +536,8 @@
       const values = {
         port: integer(data.get('port'), '端口', 1, 65535), web_port: integer(data.get('web_port'), 'Web 端口', 1, 65535),
         group_mode: data.get('group_mode'), proxy_providers: [], local_proxies: [], local_rules: [],
-        proxy_rules: manualRules(data.get('proxy_rules'), '代理规则'), direct_rules: manualRules(data.get('direct_rules'), '直连规则'), group_rules: {},
+        proxy_rules: manualRules(data.get('proxy_rules'), '代理规则'), direct_rules: manualRules(data.get('direct_rules'), '直连规则'), group_rules: Object.create(null),
+        group_providers: readGroupProviders(data),
         wireguard: readWireguard(data), custom_rule_providers: readRuleProviders(data, targets),
       };
       if (data.get('ip4p') === 'on') values.config_overrides = {experimental: {'dialer-ip4p-convert': true}};
@@ -488,17 +561,21 @@
     }
     form.onsubmit = async event => {
       event.preventDefault(); generate.disabled = true; download.disabled = true;
-      config = ''; resultConfig.value = ''; const generation = ++snapshotVersion; clearPublished(); syncSubscriptionButtons();
+      config = ''; generatedSource = ''; generatedTarget = null; resultConfig.value = '';
+      const generation = ++snapshotVersion, target = editingSubscription && {...editingSubscription};
+      clearPublished(); syncSubscriptionButtons();
       generate.textContent = '生成中…'; status.hidden = true; status.textContent = '';
       try {
         const values = mode === 'file' ? fileValues.value : valuesFromForm();
-        if (mode === 'file') localStorage.setItem('mihomo-values', values);
         const response = await fetch('/api/generate', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({values})});
         const result = await response.json();
         if (generation !== snapshotVersion) return;
         if (!response.ok) throw new Error(result.error || '生成失败');
         if (typeof result.config !== 'string' || !result.config.trim()) throw new Error('生成结果为空');
-        config = result.config; download.disabled = false; syncSubscriptionButtons();
+        config = result.config;
+        generatedSource = typeof result.source === 'string' ? result.source : (typeof values === 'string' ? values : JSON.stringify(values, null, 2));
+        generatedTarget = target; publishName.value = target?.name || publishName.value || '我的配置';
+        download.disabled = false; syncSubscriptionButtons();
         resultConfig.value = config;
         copyMessage.textContent = ''; copyMessage.hidden = true;
         resultDialog.showModal();
@@ -533,13 +610,19 @@
     const subscriptionList = document.querySelector('#subscription-list'), subscriptionUrl = document.querySelector('#subscription-url');
     const subscriptionMessage = document.querySelector('#subscription-message'), recoveryCode = document.querySelector('#recovery-code');
     const publish = document.querySelector('#publish'), publishedUrl = document.querySelector('#published-url'), publishMessage = document.querySelector('#publish-message');
+    const publishName = document.querySelector('#publish-name');
     let subscriptionRows = [], subscriptionBusy = false, snapshotVersion = 0;
+    let generatedSource = '', generatedTarget = null, editingSubscription = null;
     const subButton = id => document.querySelector('#' + id);
     function selectedSubscription() { return subscriptionRows.find(row => row.id === subscriptionList.value); }
     function syncSubscriptionButtons() {
       const selected = selectedSubscription();
       publish.disabled = subscriptionBusy || !config;
-      for (const id of ['copy-subscription', 'reset-subscription', 'delete-subscription']) subButton(id).disabled = subscriptionBusy || !selected;
+      publish.textContent = generatedTarget ? '更新原订阅' : '发布订阅';
+      subButton('publish-new').hidden = !generatedTarget;
+      subButton('publish-new').disabled = subscriptionBusy || !config;
+      subButton('exit-editing').disabled = subscriptionBusy;
+      for (const id of ['edit-subscription', 'rename-subscription', 'copy-subscription', 'reset-subscription', 'delete-subscription']) subButton(id).disabled = subscriptionBusy || !selected;
       subButton('update-subscription').disabled = subscriptionBusy || !selected || !config;
       for (const id of ['rotate-recovery', 'import-recovery', 'my-subscriptions', 'result-subscriptions']) subButton(id).disabled = subscriptionBusy;
       subButton('copy-recovery').disabled = subscriptionBusy || !recoveryCode.value;
@@ -549,8 +632,28 @@
       publishMessage.textContent = ''; publishMessage.hidden = true;
     }
     function showRecovery(result) {
-      if (result.recovery_code) recoveryCode.value = result.recovery_code;
+      if (result.recovery_code) { recoveryCode.value = result.recovery_code; subButton('recovery-settings').open = true; }
     }
+    function setEditing(row) {
+      editingSubscription = row ? {id: row.id, name: row.name || '未命名配置'} : null;
+      subButton('editing-state').hidden = !editingSubscription;
+      subButton('editing-name').textContent = editingSubscription?.name || '';
+      syncSubscriptionButtons();
+    }
+    function invalidateSnapshot() {
+      ++snapshotVersion; config = ''; generatedSource = ''; generatedTarget = null;
+      resultConfig.value = ''; download.disabled = true; generate.disabled = false; generate.textContent = '生成配置';
+      if (resultDialog.open) resultDialog.close();
+      clearPublished(); syncSubscriptionButtons();
+    }
+    function loadSource(text) {
+      fileValues.value = text;
+      if (yamlEditor) yamlEditor.setValue(text);
+    }
+    subButton('exit-editing').onclick = () => {
+      if (!editingSubscription || !confirm('退出编辑？尚未发布的修改不会保存到服务器。')) return;
+      setEditing(null); invalidateSnapshot(); publishName.value = '';
+    };
     async function subscriptionApi(path, method = 'GET', payload) {
       const options = {method, credentials: 'same-origin'};
       if (method !== 'GET') {
@@ -569,7 +672,7 @@
       subscriptionRows = result.subscriptions;
       const options = subscriptionRows.map((row, index) => {
         const option = document.createElement('option'); option.value = row.id;
-        option.textContent = `订阅 ${index + 1} · ${row.updated_at}`; return option;
+        option.textContent = `${row.name || `订阅 ${index + 1}`} · ${row.updated_at}${row.has_source === false ? ' · 未保存源文件' : ''}`; return option;
       });
       subscriptionList.replaceChildren(...options);
       subscriptionList.value = subscriptionRows.some(row => row.id === preferred) ? preferred : (subscriptionRows[0]?.id || '');
@@ -592,15 +695,43 @@
     subButton('result-subscriptions').onclick = openSubscriptions;
     subButton('close-subscriptions').onclick = () => subscriptionDialog.close();
     subscriptionDialog.onclose = () => generate.focus();
-    publish.onclick = () => subscriptionAction(publishMessage, async () => {
-      if (!config) return;
-      const snapshot = config, version = snapshotVersion;
-      clearPublished();
-      await ensureIdentity();
-      const row = await subscriptionApi('/api/subscriptions', 'POST', {config: snapshot});
+    function publishSnapshot(asNew = false) {
+      return subscriptionAction(publishMessage, async () => {
+        if (!config) return;
+        const snapshot = config, source = generatedSource, version = snapshotVersion;
+        const target = asNew ? null : generatedTarget, name = publishName.value.trim() || '未命名配置';
+        if (target && !confirm(`更新“${target.name}”？将替换源配置和成品，链接保持不变。`)) return;
+        clearPublished(); await ensureIdentity();
+        if (version !== snapshotVersion) return;
+        const row = await subscriptionApi('/api/subscriptions' + (target ? '/' + target.id : ''), target ? 'PUT' : 'POST', {config: snapshot, source, name});
+        if (version !== snapshotVersion) return;
+        if (row.id) { setEditing({...row, name: row.name || name}); generatedTarget = {...editingSubscription}; syncSubscriptionButtons(); }
+        publishedUrl.value = row.url; document.querySelector('#published').hidden = false;
+        publishMessage.textContent = target ? '已更新源配置与成品，订阅链接不变。' : '已发布。请在“我的配置订阅 → 身份与恢复码”保存恢复码。'; publishMessage.hidden = false;
+      });
+    }
+    publish.onclick = () => publishSnapshot();
+    subButton('publish-new').onclick = () => publishSnapshot(true);
+    subButton('edit-subscription').onclick = () => subscriptionAction(subscriptionMessage, async () => {
+      const row = selectedSubscription();
+      if (!row || !confirm(`编辑“${row.name || '未命名配置'}”？将替换编辑器内容，未发布的修改不会自动保存。`)) return;
+      invalidateSnapshot(); const version = snapshotVersion;
+      const result = await subscriptionApi('/api/subscriptions/' + row.id + '/source');
       if (version !== snapshotVersion) return;
-      publishedUrl.value = row.url; document.querySelector('#published').hidden = false;
-      publishMessage.textContent = '已发布。请到“我的订阅 / 恢复码”保存恢复码。'; publishMessage.hidden = false;
+      setEditing(result); loadSource(result.source || ''); setMode('file');
+      publishName.value = editingSubscription.name;
+      subscriptionDialog.close();
+      status.textContent = result.source === null ? '此旧订阅未保存源配置，请粘贴 values.yaml，生成预览后手动更新。不能由成品配置反推源文件。' : '';
+      status.hidden = !status.textContent;
+      if (yamlEditor) yamlEditor.focus(); else fileValues.focus();
+    });
+    subButton('rename-subscription').onclick = () => subscriptionAction(subscriptionMessage, async () => {
+      const row = selectedSubscription(); if (!row) return;
+      const name = prompt('新的配置名称（1–80 个字符）', row.name || '未命名配置'); if (name === null) return;
+      const result = await subscriptionApi('/api/subscriptions/' + row.id, 'PATCH', {name});
+      if (editingSubscription?.id === row.id) setEditing(result);
+      if (generatedTarget?.id === row.id) { generatedTarget.name = result.name; publishName.value = result.name; }
+      await loadSubscriptions(row.id); subscriptionMessage.textContent = '已重命名。'; subscriptionMessage.hidden = false;
     });
     subButton('copy-published').onclick = () => copyPreview(publishedUrl, publishMessage, subButton('copy-published'), resultDialog);
     subButton('copy-subscription').onclick = () => copyPreview(subscriptionUrl, subscriptionMessage, subButton('copy-subscription'), subscriptionDialog);
@@ -611,9 +742,10 @@
       ['delete-subscription', 'DELETE', '', '删除订阅？旧链接将立即失效且无法撤销。']
     ]) {
       subButton(id).onclick = () => subscriptionAction(subscriptionMessage, async () => {
-        const row = selectedSubscription(), snapshot = config;
+        const row = selectedSubscription(), snapshot = config, source = generatedSource;
         if (!row || (method === 'PUT' && !snapshot) || !confirm(prompt)) return;
-        await subscriptionApi('/api/subscriptions/' + row.id + suffix, method, method === 'PUT' ? {config: snapshot} : {});
+        await subscriptionApi('/api/subscriptions/' + row.id + suffix, method, method === 'PUT' ? {config: snapshot, source} : {});
+        if (method === 'DELETE' && editingSubscription?.id === row.id) { setEditing(null); invalidateSnapshot(); }
         clearPublished(); await loadSubscriptions(row.id);
         subscriptionMessage.textContent = '已完成。'; subscriptionMessage.hidden = false;
       });
@@ -628,7 +760,7 @@
       const input = subButton('import-code'), code = input.value.trim(); input.value = '';
       if (!code || !confirm('恢复将切换当前身份并注销原浏览器，请先保存当前身份的恢复码。继续？')) return;
       const result = await subscriptionApi('/api/identity/recover', 'POST', {recovery_code: code});
-      recoveryCode.value = ''; showRecovery(result); clearPublished(); await loadSubscriptions();
+      recoveryCode.value = ''; showRecovery(result); setEditing(null); invalidateSnapshot(); loadSource(''); await loadSubscriptions();
       subscriptionMessage.textContent = '身份已恢复，旧码已失效，请保存新恢复码。'; subscriptionMessage.hidden = false;
     });
     syncSubscriptionButtons();

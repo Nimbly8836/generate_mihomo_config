@@ -559,6 +559,74 @@ class GenerateMihomoConfigTest < Minitest::Test
     end
   end
 
+  def test_subscription_nodes_can_join_my_proxy_and_a_new_shared_group
+    sources = [
+      { 'name' => 'main', 'url' => 'https://example.com/one.yaml' },
+      { 'name' => 'main', 'url' => 'https://example.com/two.yaml' },
+      { 'name' => 'backup', 'url' => 'https://example.com/backup.yaml' }
+    ]
+    values = empty_provider_values([]).merge('proxy_providers' => sources,
+      'group_providers' => { 'my_proxy' => ['main'], 'combined' => %w[main backup main] })
+    with_generated_config(values) do |config, _path|
+      mine = proxy_group(config, 'my_proxy')
+      assert_equal %w[main main__2], mine.fetch('use')
+      assert_empty mine.fetch('proxies')
+      assert_equal 'DIRECT', mine.fetch('empty-fallback')
+      combined = proxy_group(config, 'combined')
+      assert_equal 'select', combined.fetch('type')
+      assert_equal %w[main main__2 backup], combined.fetch('use')
+      assert_empty combined.fetch('proxies')
+      assert_equal 'REJECT', combined.fetch('empty-fallback')
+      assert_includes proxy_group(config, 'final').fetch('proxies'), 'combined'
+      assert_equal %w[main main__2 backup], proxy_group(config, 'all_nodes').fetch('use')
+    end
+  end
+
+  def test_group_subscriptions_preserve_manual_nodes_and_existing_group_options
+    values = provider_present_values.merge(
+      'local_proxy_groups' => [{ 'name' => 'custom', 'type' => 'url-test', 'proxies' => ['DIRECT'],
+                                'url' => 'https://example.com/health', 'interval' => 600 }],
+      'group_providers' => { 'my_proxy' => ['remote_provider'], 'custom' => ['remote_provider'], 'china' => ['remote_provider'] })
+    with_generated_config(values) do |config, _path|
+      assert_equal ['handwritten'], proxy_group(config, 'my_proxy').fetch('proxies')
+      assert_equal ['remote_provider'], proxy_group(config, 'my_proxy').fetch('use')
+      custom = proxy_group(config, 'custom')
+      assert_equal ['DIRECT'], custom.fetch('proxies')
+      assert_equal 'url-test', custom.fetch('type')
+      assert_equal 600, custom.fetch('interval')
+      assert_equal ['remote_provider'], custom.fetch('use')
+      assert_equal 'DIRECT', proxy_group(config, 'china').fetch('proxies').first
+    end
+  end
+
+  def test_invalid_group_subscriptions_fail_without_overwriting_output
+    invalid = ['main', [], { 'my_proxy' => 'main' }, { 'my_proxy' => [] }, { 'my_proxy' => [nil] },
+               { 'my_proxy' => ['missing'] }, { 'DIRECT' => ['remote_provider'] },
+               { 'handwritten' => ['remote_provider'] }, { '' => ['remote_provider'] }]
+    Dir.mktmpdir('mihomo-invalid-group-providers') do |directory|
+      input, output = File.join(directory, 'values.yaml'), File.join(directory, 'config.yaml')
+      invalid.each do |selection|
+        File.write(input, YAML.dump(provider_present_values.merge('group_providers' => selection)))
+        File.write(output, 'keep-existing')
+        _stdout, stderr, status = Open3.capture3(RbConfig.ruby, GENERATOR, '-v', input, '-t', TEMPLATE, '-o', output)
+        refute status.success?, selection.inspect
+        assert_includes stderr, 'group_providers'
+        assert_equal 'keep-existing', File.read(output)
+      end
+    end
+  end
+
+  def test_china_has_only_one_direct_choice_in_both_modes
+    %w[simple detailed].each do |mode|
+      with_generated_config(empty_provider_values([]).merge('group_mode' => mode)) do |config, _path|
+        choices = proxy_group(config, 'china').fetch('proxies')
+        assert_equal 'DIRECT', choices.first
+        assert_equal 1, choices.count('DIRECT')
+        assert_equal choices.uniq, choices
+      end
+    end
+  end
+
   def test_detailed_groups_default_to_simple_parent
     values = empty_provider_values([]).merge('group_mode' => 'detailed')
 
@@ -569,7 +637,7 @@ class GenerateMihomoConfigTest < Minitest::Test
     end
   end
 
-  def test_final_can_select_visible_groups_independently_of_proxy
+  def test_final_can_select_all_other_groups_independently_of_proxy
     %w[simple detailed].each do |mode|
       with_generated_config(empty_provider_values([]).merge('group_mode' => mode)) do |config, path|
         groups = config.fetch('proxy-groups').to_h { |group| [group.fetch('name'), group] }
@@ -584,7 +652,7 @@ class GenerateMihomoConfigTest < Minitest::Test
         end
         assert_equal choices.uniq, choices
         refute_includes choices, 'final'
-        refute choices.any? { |name| name.end_with?('_auto') }
+        assert_equal (groups.keys - ['final']).sort, (choices - ['DIRECT']).sort
         assert_equal 'all_nodes', groups.fetch('proxy').fetch('proxies').first
         refute_includes groups.fetch('proxy').fetch('proxies'), 'ai'
         assert_equal 'MATCH,final', config.fetch('rules').last
@@ -902,7 +970,9 @@ class GenerateMihomoConfigTest < Minitest::Test
         assert_equal true, node.fetch('udp')
         assert_equal %w[wg_office_node REJECT], proxy_group(config, 'wg_office').fetch('proxies')
         assert_equal ['DIRECT'], proxy_group(config, 'my_proxy').fetch('proxies')
-        %w[proxy default final all_nodes hk].each do |name|
+        assert_includes proxy_group(config, 'final').fetch('proxies'), 'wg_office'
+        refute_includes proxy_group(config, 'final').fetch('proxies'), 'wg_office_node'
+        %w[proxy default all_nodes hk].each do |name|
           refute_includes proxy_group(config, name).fetch('proxies', []), 'wg_office'
           refute_includes proxy_group(config, name).fetch('proxies', []), 'wg_office_node'
         end

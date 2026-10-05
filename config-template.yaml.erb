@@ -527,7 +527,7 @@ proxy-groups:
       - <%= yaml_scalar(name) %>
 <% end -%>
 
-  # 手写节点入口；为空时自动回退 DIRECT。
+  # 手写节点入口；可用 group_providers 追加订阅节点，为空时回退 DIRECT。
   - name: my_proxy
     type: select
     proxies:
@@ -551,7 +551,7 @@ proxy-groups:
 <% end -%>
 
 <% unless wireguard.groups.empty? -%>
-  # 内网 WG 专用组，不加入普通代理出口；可手动切到 REJECT 停用。
+  # 内网 WG 专用组；final 可手动选择，但普通出口默认不走 WG。
 <%= render_list(wireguard.groups, indent: 2) -%>
 <% end -%>
 
@@ -574,8 +574,9 @@ proxy-groups:
       - kr
       - eu
       - others
+<% unless name == 'china' -%>
       - DIRECT
-<% blocked = [name] + detailed_groups.select { |_, parent| parent == name }.keys -%>
+<% end -%>
 <% local_proxy_group_names_for(*built_in_groups).each do |custom_name| -%>
       - <%= yaml_scalar(custom_name) %>
 <% end -%>
@@ -603,14 +604,15 @@ proxy-groups:
 <% end -%>
 <% end -%>
 
-  # 最终兜底独立选择出口；默认仍跟随 proxy，也可选择其他可见策略组。
+  # 最终兜底独立选择出口；列出全部其他组（含隐藏 auto / WG），排除循环引用。
   - name: final
     type: select
     proxies:
       - proxy
       - DIRECT
 <% final_service_groups = group_mode == 'detailed' ? detailed_groups.keys : ['apple'] -%>
-<% (%w[default all_nodes my_proxy domestic] + simple_groups + final_service_groups + region_groups).uniq.each do |name| -%>
+<% final_regions = region_groups.flat_map { |region| [region, "#{region}_auto"] } -%>
+<% (%w[default all_nodes my_proxy domestic ad_block] + simple_groups + final_service_groups + final_regions + wireguard.groups.map { |group| group.fetch('name') }).uniq.each do |name| -%>
       - <%= yaml_scalar(name) %>
 <% end -%>
 <% local_proxy_group_names_for('final').each do |name| -%>

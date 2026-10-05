@@ -21,6 +21,8 @@ end
 class SubscriptionStore
   TOKEN = /\A[0-9a-f]{64}\z/
   MAX_CONFIG = 524_288
+  MAX_SOURCE = 524_288
+  MAX_NAME = 80
   MAX_BYTES = 32 * 1024 * 1024
   MAX_OWNERS = 1000
   MAX_SUBSCRIPTIONS = 1000
@@ -117,27 +119,30 @@ class SubscriptionStore
   end
 
   def summary(id, row)
-    { 'id' => id, 'token' => row['token'], 'updated_at' => row['updated_at'] }
+    { 'id' => id, 'token' => row['token'], 'updated_at' => row['updated_at'],
+      'name' => row.fetch('name', '未命名配置'), 'has_source' => !row['source'].nil? }
   end
 
   def validate_config(config)
     raise WebError.new(422, '需要有效的完整配置快照') unless config.is_a?(String) && config.bytesize.between?(1, MAX_CONFIG)
 
-    # Check keys and expanded graph cost BEFORE materialization: a tiny alias
-    # graph used as a key can otherwise cause exponential Ruby Array#hash work.
-    tree = Psych.parse_stream(config)
-    raise WebError.new(422, '配置快照无效') unless tree.children.size == 1
-
-    yaml_work(tree, {})
-    parsed = Psych.safe_load(config, aliases: true)
+    parsed = parse_yaml(config)
     unless parsed.is_a?(Hash) && parsed['proxy-groups'].is_a?(Array) && parsed['rules'].is_a?(Array)
       raise WebError.new(422, '需要完整 Mihomo 配置，而非节点订阅')
     end
-  rescue Psych::Exception, ArgumentError
-    raise WebError.new(422, '配置快照无效')
   end
 
-  def change(session, action, id = nil, config = nil)
+  def source(session, id)
+    transaction do |data|
+      owner_id, = owner(data, session)
+      row = data['subscriptions'][id]
+      raise WebError.new(404, '订阅不存在') unless row && row['owner'] == owner_id
+
+      { 'id' => id, 'name' => row.fetch('name', '未命名配置'), 'source' => row['source'] }
+    end
+  end
+
+  def change(session, action, id = nil, config = nil, name: nil, source: nil)
     transaction(write: true) do |data|
       owner_id, = owner(data, session)
       rows = data['subscriptions']
@@ -146,7 +151,7 @@ class SubscriptionStore
           raise WebError.new(409, '订阅容量已满')
         end
         id = token
-        row = { 'owner' => owner_id, 'token' => token }
+        row = { 'owner' => owner_id, 'token' => token, 'name' => '未命名配置' }
       else
         row = rows[id]
         raise WebError.new(404, '订阅不存在') unless row && row['owner'] == owner_id
@@ -154,7 +159,13 @@ class SubscriptionStore
       case action
       when :create, :update
         validate_config(config)
+        validate_source(source) unless source.nil?
+        row['name'] = validate_name(name) unless name.nil?
         row['config'] = config
+        # No history/drafts. A config-only legacy update clears any stale source.
+        row['source'] = source
+      when :rename
+        row['name'] = validate_name(name)
       when :reset
         row['token'] = token
       when :delete
@@ -177,6 +188,30 @@ class SubscriptionStore
   end
 
   private
+
+  def validate_name(name)
+    unless name.is_a?(String) && name.strip.length.between?(1, MAX_NAME) && !name.match?(/[[:cntrl:]]/)
+      raise WebError.new(422, '名称需为 1–80 个字符，不能包含控制字符')
+    end
+    name.strip
+  end
+
+  def validate_source(source)
+    unless source.is_a?(String) && source.bytesize.between?(1, MAX_SOURCE) && parse_yaml(source).is_a?(Hash)
+      raise WebError.new(422, '源配置必须是有效的 values.yaml 映射，且不超过 512 KiB')
+    end
+  end
+
+  def parse_yaml(text)
+    # The same pre-materialization safeguards apply to snapshots AND sources.
+    tree = Psych.parse_stream(text)
+    raise WebError.new(422, 'YAML 配置无效') unless tree.children.size == 1
+
+    yaml_work(tree, {})
+    Psych.safe_load(text, aliases: true)
+  rescue Psych::Exception, ArgumentError
+    raise WebError.new(422, 'YAML 配置无效')
+  end
 
   # Count an alias's cached subtree cost, not just its single syntax node. This
   # bounds repeated merge/copy work without actually expanding shared subtrees.
@@ -219,6 +254,10 @@ class SubscriptionStore
     data['subscriptions'].each do |id, row|
       unless id.match?(TOKEN) && row.is_a?(Hash) && data['owners'].key?(row['owner']) && row['token'].is_a?(String) && row['token'].match?(TOKEN) && row['config'].is_a?(String) && row['config'].bytesize.between?(1, MAX_CONFIG) && row['updated_at'].is_a?(String)
         raise 'invalid subscription'
+      end
+      validate_name(row['name']) if row.key?('name')
+      unless row['source'].nil? || (row['source'].is_a?(String) && row['source'].bytesize.between?(1, MAX_SOURCE))
+        raise 'invalid subscription source'
       end
     end
     data
