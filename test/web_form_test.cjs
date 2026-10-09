@@ -642,7 +642,7 @@ test("my subscriptions uses safe text and confirms snapshot updates, reset and d
   assert.match(element("#subscription-message").textContent, /offline/);
 });
 
-test("recovery import and rotation clear entered secrets and support manual export", async () => {
+test("reusable recovery import and explicit reset clear inputs and support manual export", async () => {
   const { context, element } = page(false);
   await element("#form").onsubmit({ preventDefault() {} });
   assert.equal(element("#publish").disabled, false);
@@ -658,22 +658,21 @@ test("recovery import and rotation clear entered secrets and support manual expo
     return {
       ok: true,
       json: async () => ({
-        recovery_code: url.endsWith("/recover")
-          ? "rotated-after-import"
-          : "new-recovery",
+        recovery_code: url.endsWith("/recover") ? null : "new-recovery",
       }),
     };
   };
   await element("#my-subscriptions").onclick();
   assert.equal(element("#update-subscription").disabled, true);
-  element("#import-code").value = "one-use-recovery";
+  element("#import-code").value = "reusable-recovery";
   await element("#import-recovery").onclick();
   assert.equal(element("#import-code").value, "");
-  assert.equal(element("#recovery-code").value, "rotated-after-import");
+  assert.equal(element("#recovery-code").value, "reusable-recovery");
+  assert.match(element("#subscription-message").textContent, /原恢复码仍有效/);
   assert.equal(element("#publish").disabled, true);
   assert.equal(element("#file-values").value, "");
   assert.deepEqual(calls.find(([url]) => url.endsWith("/recover"))[1], {
-    recovery_code: "one-use-recovery",
+    recovery_code: "reusable-recovery",
   });
   await element("#rotate-recovery").onclick();
   assert.equal(element("#recovery-code").value, "new-recovery");

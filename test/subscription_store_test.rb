@@ -19,22 +19,26 @@ class SubscriptionStoreTest < Minitest::Test
     FileUtils.remove_entry(@directory)
   end
 
-  def test_credentials_are_distinct_hash_only_and_recovery_rotates_both
+  def test_credentials_are_distinct_hash_only_and_recovery_is_reusable_until_reset
     row = @store.change(@session, :create, nil, CONFIG)
     assert_equal 64, row['token'].size
     assert_equal 3, [@session, @recovery, row['token']].uniq.size
-    bytes = File.read(File.join(@directory, 'subscriptions.json'))
+    bytes = File.binread(File.join(@directory, 'subscriptions.sqlite3'))
     refute_includes bytes, @session
     refute_includes bytes, @recovery
     assert_includes bytes, @store.digest(@session)
     assert_includes bytes, @store.digest(@recovery)
     session, code = @store.recover(@recovery)
+    assert_nil code
+    refute_equal @session, session
     assert_equal row, @store.list(session).first
-    assert_raises(WebError) { @store.list(@session) }
-    assert_raises(WebError) { @store.recover(@recovery) }
+    assert_equal row, @store.list(@session).first
+    another, = @store.recover(@recovery)
+    assert_equal row, @store.list(another).first
     rotated = @store.recovery(session)
-    assert_raises(WebError) { @store.recover(code) }
+    assert_raises(WebError) { @store.recover(@recovery) }
     assert @store.recover(rotated)
+    [@session, session, another].each { |device| assert_equal row, @store.list(device).first }
     assert_raises(WebError) { @store.list(row['token']) }
   end
 
@@ -130,27 +134,23 @@ class SubscriptionStoreTest < Minitest::Test
     updated = @store.change(@session, :update, row['id'], CONFIG + "# changed\n", name: '新名称', source: updated_source)
     assert_equal row['token'], updated['token']
     assert_equal updated_source, @store.source(@session, row['id'])['source']
-    refute_includes File.read(File.join(@directory, 'subscriptions.json')), 'old-source-only-secret'
+    refute_includes File.binread(File.join(@directory, 'subscriptions.sqlite3')), 'old-source-only-secret'
     renamed = @store.change(@session, :rename, row['id'], name: '最终名称')
     assert_equal row['token'], renamed['token']
     assert_equal updated_source, @store.source(@session, row['id'])['source']
-    original = File.binread(File.join(@directory, 'subscriptions.json'))
+    original = File.binread(File.join(@directory, 'subscriptions.sqlite3'))
     ['bad: [', '[]', ' ', 'x' * (SubscriptionStore::MAX_SOURCE + 1), "loop: &loop [*loop]\n"].each do |bad|
       assert_raises(WebError) { @store.change(@session, :update, row['id'], CONFIG, source: bad) }
-      assert_equal original, File.binread(File.join(@directory, 'subscriptions.json'))
+      assert_equal original, File.binread(File.join(@directory, 'subscriptions.sqlite3'))
     end
     ['', 123, 'x' * 81, "bad\nname"].each do |bad|
       assert_raises(WebError) { @store.change(@session, :rename, row['id'], name: bad) }
-      assert_equal original, File.binread(File.join(@directory, 'subscriptions.json'))
+      assert_equal original, File.binread(File.join(@directory, 'subscriptions.sqlite3'))
     end
   end
 
-  def test_legacy_records_load_and_config_only_updates_clear_stale_sources
+  def test_config_only_updates_clear_stale_sources
     row = @store.change(@session, :create, nil, CONFIG)
-    @store.transaction(write: true) do |data|
-      data['subscriptions'][row['id']].delete('name')
-      data['subscriptions'][row['id']].delete('source')
-    end
     store = SubscriptionStore.new(@directory)
     assert_equal '未命名配置', store.list(@session).first['name']
     assert_nil store.source(@session, row['id'])['source']
@@ -164,9 +164,9 @@ class SubscriptionStoreTest < Minitest::Test
     SubscriptionStore::MAX_PER_OWNER.times { @store.change(@session, :create, nil, CONFIG) }
     error = assert_raises(WebError) { @store.change(@session, :create, nil, CONFIG) }
     assert_equal 409, error.status
-    @store.transaction(write: true) do |data|
+    @store.transaction(write: true) do |db|
       (SubscriptionStore::MAX_OWNERS - 1).times do
-        data['owners'][@store.token] = { 'session_hash' => @store.digest(@store.token), 'recovery_hash' => @store.digest(@store.token) }
+        @store.send(:insert_owner, db, @store.token, 'session_hash' => @store.digest(@store.token), 'recovery_hash' => @store.digest(@store.token))
       end
     end
     assert_raises(WebError) { @store.identity(nil) }
@@ -174,23 +174,28 @@ class SubscriptionStoreTest < Minitest::Test
   end
 
   def test_global_subscription_and_byte_limits
-    @store.transaction(write: true) do |data|
-      owner_id = data['owners'].keys.first
-      SubscriptionStore::MAX_SUBSCRIPTIONS.times do
-        data['subscriptions'][@store.token] = { 'owner' => owner_id, 'token' => @store.token, 'config' => CONFIG, 'updated_at' => Time.now.utc.iso8601 }
+    @store.transaction(write: true) do |db|
+      (SubscriptionStore::MAX_SUBSCRIPTIONS / SubscriptionStore::MAX_PER_OWNER).times do
+        owner_id = @store.token
+        @store.send(:insert_owner, db, owner_id, 'session_hash' => @store.digest(@store.token), 'recovery_hash' => @store.digest(@store.token))
+        SubscriptionStore::MAX_PER_OWNER.times do
+          @store.send(:insert_subscription, db, @store.token, 'owner' => owner_id, 'token' => @store.token,
+                      'name' => 'limit', 'config' => CONFIG, 'source' => nil, 'updated_at' => Time.now.utc.iso8601)
+        end
       end
     end
     other, = @store.identity(nil)
-    assert_raises(WebError) { @store.change(other, :create, nil, CONFIG) }
-    original = File.binread(File.join(@directory, 'subscriptions.json'))
-    assert_raises(WebError) do
-      @store.transaction(write: true) { |data| data['oversize'] = 'x' * SubscriptionStore::MAX_BYTES }
+    assert_equal 409, assert_raises(WebError) { @store.change(other, :create, nil, CONFIG) }.status
+    original = File.binread(File.join(@directory, 'subscriptions.sqlite3'))
+    error = assert_raises(WebError) do
+      @store.transaction(write: true) { |db| db.execute('UPDATE owners SET storage_bytes = ?', [SubscriptionStore::MAX_BYTES]) }
     end
-    assert_equal original, File.binread(File.join(@directory, 'subscriptions.json'))
+    assert_equal 409, error.status
+    assert_equal original, File.binread(File.join(@directory, 'subscriptions.sqlite3'))
   end
 
   def test_corrupt_and_missing_data_never_reinitialize
-    path = File.join(@directory, 'subscriptions.json')
+    path = File.join(@directory, 'subscriptions.sqlite3')
     ['', '{}', 'invalid', '{"version":1,"owners":{},"subscriptions":{"x":{}}}'].each do |bad|
       File.write(path, bad)
       assert_raises(StandardError) { SubscriptionStore.new(@directory) }

@@ -109,10 +109,10 @@ class WebSubscriptionsTest < Minitest::Test
   def test_saved_source_editing_requires_owner_and_explicit_update
     browser, = identity
     source = "# original source comments\nproxy_providers: []\nunused: private-source-only\n"
-    before = File.binread(File.join(@directory, 'data/subscriptions.json'))
+    before = File.binread(File.join(@directory, 'data/subscriptions.sqlite3'))
     generated = json(request('POST', '/api/generate', { values: source }))
     assert_equal source, generated['source']
-    assert_equal before, File.binread(File.join(@directory, 'data/subscriptions.json')), 'generation must not save source'
+    assert_equal before, File.binread(File.join(@directory, 'data/subscriptions.sqlite3')), 'generation must not save source'
     created = request('POST', '/api/subscriptions', { name: '电脑配置', config: generated['config'], source: source }, cookie: browser)
     assert_equal '201', created.code
     row = json(created)
@@ -129,29 +129,29 @@ class WebSubscriptionsTest < Minitest::Test
     assert_equal forbidden.body, request('GET', "/api/subscriptions/#{'0' * 64}/source", cookie: second).body
     assert_equal '404', request('PATCH', "/api/subscriptions/#{id}", { name: 'other' }, cookie: second).code
     assert_equal '401', request('GET', "/api/subscriptions/#{id}/source", cookie: "mihomo_session=#{row['url'].split('/').last}").code
-    saved = File.binread(File.join(@directory, 'data/subscriptions.json'))
+    saved = File.binread(File.join(@directory, 'data/subscriptions.sqlite3'))
     assert_equal '403', request('PATCH', "/api/subscriptions/#{id}", { name: 'wrong-origin' }, cookie: browser, headers: { 'Origin' => 'https://evil.example' }).code
-    assert_equal saved, File.binread(File.join(@directory, 'data/subscriptions.json'))
+    assert_equal saved, File.binread(File.join(@directory, 'data/subscriptions.sqlite3'))
     next_source = "proxy_providers: []\nport: 7888\n"
     next_generation = json(request('POST', '/api/generate', { values: next_source }))
-    assert_equal saved, File.binread(File.join(@directory, 'data/subscriptions.json'))
+    assert_equal saved, File.binread(File.join(@directory, 'data/subscriptions.sqlite3'))
     updated = json(request('PUT', "/api/subscriptions/#{id}", { name: '新名称', source: next_source, config: next_generation['config'] }, cookie: browser))
     assert_equal row['url'], updated['url']
     assert_equal next_generation['config'].b, read_url(row['url']).body.b
     renamed = json(request('PATCH', "/api/subscriptions/#{id}", { name: '<img src=x>' }, cookie: browser))
     assert_equal '<img src=x>', renamed['name']
     assert_equal row['url'], renamed['url']
-    saved = File.binread(File.join(@directory, 'data/subscriptions.json'))
+    saved = File.binread(File.join(@directory, 'data/subscriptions.sqlite3'))
     invalid = request('PUT', "/api/subscriptions/#{id}", { name: 'not saved', source: 'invalid-secret: [', config: CONFIG }, cookie: browser)
     assert_equal '422', invalid.code
     refute_includes invalid.body, 'invalid-secret'
-    assert_equal saved, File.binread(File.join(@directory, 'data/subscriptions.json'))
+    assert_equal saved, File.binread(File.join(@directory, 'data/subscriptions.sqlite3'))
     stop_server
     start_server
     response = request('GET', "/api/subscriptions/#{id}/source", cookie: browser)
     assert_equal next_source, json(response)['source']
     assert_equal 'private, no-store', response['cache-control']
-    refute_includes File.read(File.join(@directory, 'data/subscriptions.json')), 'private-source-only'
+    refute_includes File.binread(File.join(@directory, 'data/subscriptions.sqlite3')), 'private-source-only'
     refute_includes File.read(File.join(@directory, 'log')), source
   end
 
@@ -185,7 +185,7 @@ class WebSubscriptionsTest < Minitest::Test
     assert_equal CONFIG, read_url(row['url']).body
   end
 
-  def test_recovery_is_one_use_and_rotates_session_and_recovery
+  def test_recovery_is_reusable_across_devices_until_explicit_reset
     first, code = identity
     row = create(first)
     ['../subscriptions.json', nil, {}, '<script>', 'a' * 64].each do |invalid|
@@ -194,16 +194,25 @@ class WebSubscriptionsTest < Minitest::Test
     response = request('POST', '/api/identity/recover', { recovery_code: code })
     assert_equal '200', response.code
     recovered = response['set-cookie'].split(';').first
-    new_code = json(response)['recovery_code']
-    refute_equal code, new_code
-    assert_equal '401', request('GET', '/api/subscriptions', cookie: first).code
-    assert_equal '404', request('POST', '/api/identity/recover', { recovery_code: code }).code
-    assert_equal row, json(request('GET', '/api/subscriptions', cookie: recovered))['subscriptions'].first
+    assert_nil json(response)['recovery_code']
+    refute_equal first, recovered
+    reused = request('POST', '/api/identity/recover', { recovery_code: code }, cookie: first)
+    assert_equal '200', reused.code
+    assert_nil reused['set-cookie']
+    assert_nil json(reused)['recovery_code']
+    third_response = request('POST', '/api/identity/recover', { recovery_code: code })
+    assert_equal '200', third_response.code
+    third = third_response['set-cookie'].split(';').first
     rotated = json(request('POST', '/api/identity/recovery', cookie: recovered))['recovery_code']
-    assert_equal '404', request('POST', '/api/identity/recover', { recovery_code: new_code }).code
+    assert_equal '404', request('POST', '/api/identity/recover', { recovery_code: code }, cookie: first).code
     assert_equal '200', request('POST', '/api/identity/recover', { recovery_code: rotated }).code
-    bytes = File.binread(File.join(@directory, 'data/subscriptions.json'))
-    [code, new_code, rotated, first.split('=').last, recovered.split('=').last].each { |secret| refute_includes bytes, secret }
+    stop_server
+    start_server
+    [first, recovered, third].each do |browser|
+      assert_equal row, json(request('GET', '/api/subscriptions', cookie: browser))['subscriptions'].first
+    end
+    bytes = File.binread(File.join(@directory, 'data/subscriptions.sqlite3'))
+    [code, rotated, first.split('=').last, recovered.split('=').last, third.split('=').last].each { |secret| refute_includes bytes, secret }
     log = File.read(File.join(@directory, 'log'))
     [code, CONFIG, row['url']].each { |secret| refute_includes log, secret }
   end
@@ -215,20 +224,21 @@ class WebSubscriptionsTest < Minitest::Test
     refute_includes response['set-cookie'], '; Secure'
     browser = response['set-cookie'].split(';').first
     row = create(browser)
-    original = File.binread(File.join(@directory, 'data/subscriptions.json'))
+    original = File.binread(File.join(@directory, 'data/subscriptions.sqlite3'))
     bad_headers = [{ 'Origin' => nil }, { 'Origin' => 'https://evil.example' }, { 'X-Mihomo-Request' => nil },
                    { 'Content-Type' => 'text/plain' }, { 'Host' => 'evil.example' }, { 'Sec-Fetch-Site' => 'cross-site' }]
     bad_headers.each do |headers|
       ['/api/identity', '/api/identity/recover', '/api/identity/recovery', '/api/subscriptions', "/api/subscriptions/#{row['id']}/reset"].each do |path|
         assert_equal '403', request('POST', path, {}, cookie: browser, headers: headers).code
-        assert_equal original, File.binread(File.join(@directory, 'data/subscriptions.json'))
+        assert_equal original, File.binread(File.join(@directory, 'data/subscriptions.sqlite3'))
       end
     end
     ['/api/identity', '/api/identity/recovery', '/api/identity/recover', "/api/subscriptions/#{row['id']}/reset"].each do |path|
       refute_equal '200', request('GET', path, cookie: browser).code
-      assert_equal original, File.binread(File.join(@directory, 'data/subscriptions.json'))
+      assert_equal original, File.binread(File.join(@directory, 'data/subscriptions.sqlite3'))
     end
     assert_equal '404', request('GET', '/s/../../data/subscriptions.json').code
+    assert_equal '404', request('GET', '/s/../../data/subscriptions.sqlite3').code
     [read_url(row['url']), request('GET', '/api/subscriptions', cookie: browser)].each do |result|
       assert_equal 'private, no-store', result['cache-control']
       assert_equal 'no-referrer', result['referrer-policy']
@@ -312,10 +322,45 @@ class WebSubscriptionsTest < Minitest::Test
     assert json(response)['url'].start_with?('https://subscriptions.example.test/s/')
   end
 
+  def test_legacy_migration_preserves_original_url_cookie_source_and_reusable_recovery
+    stop_server
+    directory = File.join(@directory, 'data')
+    FileUtils.remove_entry(directory)
+    FileUtils.mkdir_p(directory)
+    session, code, owner, id, token = Array.new(5) { SecureRandom.hex(32) }
+    source = "# source before upgrade\nproxy_providers: []\n"
+    legacy = JSON.generate('version' => 1,
+                           'owners' => { owner => { 'session_hash' => Digest::SHA256.hexdigest(session), 'recovery_hash' => Digest::SHA256.hexdigest(code) } },
+                           'subscriptions' => { id => { 'owner' => owner, 'token' => token, 'config' => CONFIG, 'name' => '原订阅', 'source' => source, 'updated_at' => '2024-01-01T00:00:00Z' } })
+    File.write(File.join(directory, 'subscriptions.json'), legacy)
+    File.write(File.join(directory, 'subscriptions.lock'), '')
+    start_server
+    browser = "mihomo_session=#{session}"
+    url = "#{@origin}/s/#{token}"
+    assert_equal CONFIG, read_url(url).body
+    assert_equal source, json(request('GET', "/api/subscriptions/#{id}/source", cookie: browser))['source']
+    row = json(request('GET', '/api/subscriptions', cookie: browser))['subscriptions'].first
+    assert_equal url, row['url']
+    assert_equal '原订阅', row['name']
+    recovered = request('POST', '/api/identity/recover', { recovery_code: code })
+    assert_equal '200', recovered.code
+    assert_nil json(recovered)['recovery_code']
+    second = recovered['set-cookie'].split(';').first
+    assert_equal '200', request('POST', '/api/identity/recover', { recovery_code: code }).code
+    updated = request('PUT', "/api/subscriptions/#{id}", { config: CONFIG + '# updated', source: source }, cookie: second)
+    assert_equal url, json(updated)['url']
+    stop_server
+    start_server
+    assert_equal CONFIG + '# updated', read_url(url).body
+    assert_equal '200', request('GET', '/api/subscriptions', cookie: browser).code
+    assert_equal '200', request('GET', '/api/subscriptions', cookie: second).code
+    assert_equal legacy, File.read(File.join(directory, 'subscriptions.json'))
+  end
+
   def test_corrupt_store_fails_closed_without_error_echo_or_replacement
     browser, = identity
     row = create(browser)
-    path = File.join(@directory, 'data/subscriptions.json')
+    path = File.join(@directory, 'data/subscriptions.sqlite3')
     File.write(path, 'corrupt-secret-test-only')
     response = read_url(row['url'])
     assert_equal '503', response.code

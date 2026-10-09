@@ -111,8 +111,9 @@ loop do
                  cookie = new_session ? { 'Set-Cookie' => security.cookie(new_session) } : {}
                  json_response.call(200, { 'recovery_code' => recovery }, cookie)
                elsif method == 'POST' && path == '/api/identity/recover'
-                 new_session, recovery = subscriptions.recover(payload.call['recovery_code'])
-                 json_response.call(200, { 'recovery_code' => recovery }, 'Set-Cookie' => security.cookie(new_session))
+                 new_session, recovery = subscriptions.recover(payload.call['recovery_code'], session)
+                 cookie = new_session ? { 'Set-Cookie' => security.cookie(new_session) } : {}
+                 json_response.call(200, { 'recovery_code' => recovery }, cookie)
                elsif method == 'POST' && path == '/api/identity/recovery'
                  payload.call
                  json_response.call(200, 'recovery_code' => subscriptions.recovery(session))

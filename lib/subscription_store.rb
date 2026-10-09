@@ -6,6 +6,7 @@ require 'securerandom'
 require 'fileutils'
 require 'psych'
 require 'time'
+require 'sqlite3'
 
 class WebError < StandardError
   attr_reader :status
@@ -16,8 +17,8 @@ class WebError < StandardError
   end
 end
 
-# One bounded JSON database, protected by a stable flock file and atomic rename.
-# Missing/corrupt data after initialization is an error, never a new identity store.
+# SQLite owns normal read/write locking. The stable flock file only coordinates
+# bootstrap/migration and remembers that an absent database must not be recreated.
 class SubscriptionStore
   TOKEN = /\A[0-9a-f]{64}\z/
   MAX_CONFIG = 524_288
@@ -27,12 +28,17 @@ class SubscriptionStore
   MAX_OWNERS = 1000
   MAX_SUBSCRIPTIONS = 1000
   MAX_PER_OWNER = 20
+  SESSION_TTL = 365 * 24 * 60 * 60
+  APPLICATION_ID = 0x4d484d53
+  MARKER = "sqlite3-v1\n"
+  EMPTY_BYTES = JSON.generate('version' => 1, 'owners' => {}, 'sessions' => {}, 'subscriptions' => {}).bytesize
 
   def initialize(directory)
     @directory = File.expand_path(directory)
     FileUtils.mkdir_p(@directory, mode: 0o700)
     File.chmod(0o700, @directory)
-    @path = File.join(@directory, 'subscriptions.json')
+    @path = File.join(@directory, 'subscriptions.sqlite3')
+    @legacy_path = File.join(@directory, 'subscriptions.json')
     lock_path = File.join(@directory, 'subscriptions.lock')
     begin
       lock = File.open(lock_path, File::RDWR | File::CREAT | File::EXCL, 0o600)
@@ -40,16 +46,31 @@ class SubscriptionStore
     rescue Errno::EEXIST
       lock = File.open(lock_path, File::RDWR)
     end
-    @lock = lock
-    File.chmod(0o600, lock_path)
-    @lock.flock(File::LOCK_EX)
-    if fresh && !File.exist?(@path)
-      persist('version' => 1, 'owners' => {}, 'subscriptions' => {})
+    begin
+      lock.flock(File::LOCK_EX)
+      File.chmod(0o600, lock_path)
+      marker = lock.read
+      raise 'invalid initialization marker' unless marker.empty? || marker == MARKER
+
+      if File.exist?(@path)
+        File.chmod(0o600, @path)
+        open_database(@path) { |db| verify_database(db) }
+        mark_initialized(lock) if marker.empty?
+      else
+        # Never resurrect the retained JSON backup after SQLite was installed.
+        raise 'missing initialized database' unless marker.empty?
+        raise 'missing legacy database' unless fresh || File.exist?(@legacy_path)
+
+        legacy = load_legacy if File.exist?(@legacy_path)
+        install_database(lock, legacy)
+      end
+      stat = File.stat(@path)
+      @file_identity = [stat.dev, stat.ino]
+    ensure
+      lock.close
     end
-    load_data
-    File.chmod(0o600, @path)
-  ensure
-    @lock&.flock(File::LOCK_UN)
+  rescue SQLite3::Exception, SystemCallError, IOError, RuntimeError, WebError
+    raise unavailable
   end
 
   def digest(token)
@@ -61,66 +82,75 @@ class SubscriptionStore
   end
 
   def transaction(write: false)
-    @lock.flock(write ? File::LOCK_EX : File::LOCK_SH)
-    data = load_data
-    result = yield data
-    persist(data) if write
-    result
-  ensure
-    @lock.flock(File::LOCK_UN)
+    stat = File.stat(@path)
+    raise 'database replaced' unless [stat.dev, stat.ino] == @file_identity && stat.size.positive?
+
+    open_database(@path) do |db|
+      db.transaction(write ? :immediate : :deferred) do
+        verify_version(db)
+        changes = db.total_changes
+        result = yield db
+        check_capacity(db) if write && db.total_changes > changes
+        result
+      end
+    end
+  rescue SQLite3::Exception, SystemCallError, IOError, RuntimeError
+    raise unavailable
   end
 
-  def owner(data, session)
-    entry = session.to_s.match?(TOKEN) && data['owners'].find { |_id, row| row['session_hash'] == digest(session) }
-    raise WebError.new(401, '浏览器身份已失效，请恢复身份或重新打开我的订阅') unless entry
+  def owner(db, session)
+    id = session_owner(db, session)
+    raise WebError.new(401, '浏览器身份已失效，请恢复身份或重新打开我的订阅') unless id
 
-    entry
+    id
   end
 
   def identity(session)
-    transaction(write: true) do |data|
-      existing = session.to_s.match?(TOKEN) && data['owners'].values.any? { |row| row['session_hash'] == digest(session) }
-      next [nil, nil] if existing
-      raise WebError.new(409, '身份容量已满') if data['owners'].size >= MAX_OWNERS
+    transaction(write: true) do |db|
+      next [nil, nil] if session_owner(db, session)
+      raise WebError.new(409, '身份容量已满') if db.get_first_value('SELECT COUNT(*) FROM owners') >= MAX_OWNERS
 
-      session, recovery = token, token
-      data['owners'][token] = { 'session_hash' => digest(session), 'recovery_hash' => digest(recovery) }
-      [session, recovery]
+      id, recovery = token, token
+      insert_owner(db, id, 'recovery_hash' => digest(recovery))
+      [create_session(db, id), recovery]
     end
   end
 
-  def recover(code)
-    raise WebError.new(404, '恢复码无效或已使用') unless code.is_a?(String) && code.match?(TOKEN)
+  def recover(code, session = nil)
+    raise WebError.new(404, '恢复码无效') unless code.is_a?(String) && code.match?(TOKEN)
 
-    transaction(write: true) do |data|
-      row = data['owners'].values.find { |item| item['recovery_hash'] == digest(code) }
-      raise WebError.new(404, '恢复码无效或已使用') unless row
+    transaction(write: true) do |db|
+      id = db.get_first_value('SELECT id FROM owners WHERE recovery_hash = ?', [digest(code)])
+      raise WebError.new(404, '恢复码无效') unless id
+      next [nil, nil] if session_owner(db, session) == id
 
-      session, recovery = token, token
-      row.merge!('session_hash' => digest(session), 'recovery_hash' => digest(recovery))
-      [session, recovery]
+      # Recovery codes are reusable until explicitly reset. Never rotate another
+      # device's session, or pretend we can retrieve a stored plaintext code.
+      [create_session(db, id), nil]
     end
   end
 
   def recovery(session)
-    transaction(write: true) do |data|
-      _id, row = owner(data, session)
+    transaction(write: true) do |db|
+      id = owner(db, session)
       code = token
-      row['recovery_hash'] = digest(code)
+      db.execute('UPDATE owners SET recovery_hash = ? WHERE id = ?', [digest(code), id])
       code
     end
   end
 
   def list(session)
-    transaction do |data|
-      id, = owner(data, session)
-      data['subscriptions'].filter_map { |key, row| summary(key, row) if row['owner'] == id }
+    transaction do |db|
+      id = owner(db, session)
+      db.execute('SELECT id, token, updated_at, name, source IS NOT NULL AS has_source FROM subscriptions WHERE owner = ? ORDER BY rowid', [id]).map do |row|
+        row.merge('has_source' => row['has_source'] == 1)
+      end
     end
   end
 
   def summary(id, row)
     { 'id' => id, 'token' => row['token'], 'updated_at' => row['updated_at'],
-      'name' => row.fetch('name', '未命名配置'), 'has_source' => !row['source'].nil? }
+      'name' => row['name'], 'has_source' => !row['source'].nil? }
   end
 
   def validate_config(config)
@@ -133,28 +163,29 @@ class SubscriptionStore
   end
 
   def source(session, id)
-    transaction do |data|
-      owner_id, = owner(data, session)
-      row = data['subscriptions'][id]
-      raise WebError.new(404, '订阅不存在') unless row && row['owner'] == owner_id
+    id = id.encode(Encoding::UTF_8) if id.is_a?(String)
+    transaction do |db|
+      owner_id = owner(db, session)
+      row = db.get_first_row('SELECT id, name, source FROM subscriptions WHERE id = ? AND owner = ?', [id, owner_id])
+      raise WebError.new(404, '订阅不存在') unless row
 
-      { 'id' => id, 'name' => row.fetch('name', '未命名配置'), 'source' => row['source'] }
+      row
     end
   end
 
   def change(session, action, id = nil, config = nil, name: nil, source: nil)
-    transaction(write: true) do |data|
-      owner_id, = owner(data, session)
-      rows = data['subscriptions']
+    id = id.encode(Encoding::UTF_8) if id.is_a?(String)
+    transaction(write: true) do |db|
+      owner_id = owner(db, session)
       if action == :create
-        if rows.size >= MAX_SUBSCRIPTIONS || rows.values.count { |row| row['owner'] == owner_id } >= MAX_PER_OWNER
+        if db.get_first_value('SELECT COUNT(*) FROM subscriptions') >= MAX_SUBSCRIPTIONS || db.get_first_value('SELECT COUNT(*) FROM subscriptions WHERE owner = ?', [owner_id]) >= MAX_PER_OWNER
           raise WebError.new(409, '订阅容量已满')
         end
         id = token
         row = { 'owner' => owner_id, 'token' => token, 'name' => '未命名配置' }
       else
-        row = rows[id]
-        raise WebError.new(404, '订阅不存在') unless row && row['owner'] == owner_id
+        row = db.get_first_row('SELECT owner, token, name, config, source, updated_at FROM subscriptions WHERE id = ? AND owner = ?', [id, owner_id])
+        raise WebError.new(404, '订阅不存在') unless row
       end
       case action
       when :create, :update
@@ -169,25 +200,226 @@ class SubscriptionStore
       when :reset
         row['token'] = token
       when :delete
-        rows.delete(id)
+        db.execute('DELETE FROM subscriptions WHERE id = ? AND owner = ?', [id, owner_id])
         next({ 'deleted' => true })
+      else
+        raise ArgumentError, 'unknown subscription action'
       end
       row['updated_at'] = Time.now.utc.iso8601
-      rows[id] = row
+      if action == :create
+        insert_subscription(db, id, row)
+      else
+        db.execute('UPDATE subscriptions SET token = ?, name = ?, config = ?, source = ?, updated_at = ?, storage_bytes = ? WHERE id = ? AND owner = ?',
+                   [row['token'], row['name'], row['config'], row['source'], row['updated_at'], row_bytes(id, row), id, owner_id])
+      end
       summary(id, row)
     end
   end
 
   def read(token)
-    transaction do |data|
-      row = data['subscriptions'].values.find { |item| item['token'] == token }
-      raise WebError.new(404, '订阅不存在') unless row
+    raise WebError.new(404, '订阅不存在') unless token.is_a?(String) && token.match?(TOKEN)
 
-      row['config']
+    transaction do |db|
+      # HTTP paths arrive as ASCII-8BIT; sqlite3 binds those as BLOB, not TEXT.
+      config = db.get_first_value('SELECT config FROM subscriptions WHERE token = ?', [token.encode(Encoding::UTF_8)])
+      raise WebError.new(404, '订阅不存在') unless config
+
+      config
     end
   end
 
   private
+
+  def unavailable
+    WebError.new(503, '订阅存储不可用，请检查权限或从备份恢复')
+  end
+
+  def open_database(path)
+    # No CREATE flag: a missing/unlinked live database must never become empty.
+    db = SQLite3::Database.new(path, flags: SQLite3::Constants::Open::READWRITE)
+    db.results_as_hash = true
+    db.busy_timeout = 5000
+    db.execute('PRAGMA foreign_keys = ON')
+    db.execute('PRAGMA secure_delete = ON')
+    db.execute('PRAGMA synchronous = FULL')
+    yield db
+  ensure
+    db&.close
+  end
+
+  def verify_version(db)
+    unless db.get_first_value('PRAGMA application_id') == APPLICATION_ID && db.get_first_value('PRAGMA user_version') == 1
+      raise 'invalid database version'
+    end
+  end
+
+  def verify_database(db)
+    verify_version(db)
+    raise 'invalid database journal mode' unless db.get_first_value('PRAGMA journal_mode') == 'delete'
+    raise 'invalid database' unless db.get_first_value('PRAGMA quick_check') == 'ok' && db.execute('PRAGMA foreign_key_check').empty?
+
+    # Check the expected tables as well, including an otherwise empty database.
+    db.execute('SELECT id, recovery_hash, storage_bytes FROM owners LIMIT 0')
+    db.execute('SELECT session_hash, owner, expires_at, storage_bytes FROM sessions LIMIT 0')
+    db.execute('SELECT id, owner, token, name, config, source, updated_at, storage_bytes FROM subscriptions LIMIT 0')
+    check_capacity(db)
+  end
+
+  def check_capacity(db)
+    # Only small integer columns are aggregated; never load/serialize all YAML.
+    bytes = EMPTY_BYTES + db.get_first_value('SELECT COALESCE(SUM(storage_bytes), 0) FROM owners') +
+            db.get_first_value('SELECT COALESCE(SUM(storage_bytes), 0) FROM sessions') +
+            db.get_first_value('SELECT COALESCE(SUM(storage_bytes), 0) FROM subscriptions')
+    raise WebError.new(409, '存储容量已满') if bytes > MAX_BYTES
+  end
+
+  def row_bytes(id, row)
+    JSON.generate(id => row).bytesize - 1
+  end
+
+  def session_owner(db, session)
+    return unless session.is_a?(String) && session.match?(TOKEN)
+
+    db.get_first_value('SELECT owner FROM sessions WHERE session_hash = ? AND expires_at > ?', [digest(session), Time.now.to_i])
+  end
+
+  def create_session(db, owner_id)
+    now = Time.now.to_i
+    db.execute('DELETE FROM sessions WHERE expires_at <= ?', [now])
+    session = token
+    insert_session(db, digest(session), owner_id, now + SESSION_TTL)
+    session
+  end
+
+  def insert_session(db, session_hash, owner_id, expires_at)
+    row = { 'owner' => owner_id, 'expires_at' => expires_at }
+    db.execute('INSERT INTO sessions (session_hash, owner, expires_at, storage_bytes) VALUES (?, ?, ?, ?)',
+               [session_hash, owner_id, expires_at, row_bytes(session_hash, row)])
+  end
+
+  def insert_owner(db, id, row)
+    row = { 'recovery_hash' => row['recovery_hash'] }
+    db.execute('INSERT INTO owners (id, recovery_hash, storage_bytes) VALUES (?, ?, ?)',
+               [id, row['recovery_hash'], row_bytes(id, row)])
+  end
+
+  def insert_subscription(db, id, row)
+    db.execute('INSERT INTO subscriptions (id, owner, token, name, config, source, updated_at, storage_bytes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+               [id, row['owner'], row['token'], row['name'], row['config'], row['source'], row['updated_at'], row_bytes(id, row)])
+  end
+
+  def mark_initialized(lock)
+    lock.rewind
+    lock.write(MARKER)
+    lock.truncate(MARKER.bytesize)
+    lock.flush
+    lock.fsync
+    File.open(@directory) { |directory| directory.fsync }
+  end
+
+  def install_database(lock, legacy)
+    temporary = File.join(@directory, ".subscriptions-#{token}.sqlite3")
+    File.open(temporary, File::WRONLY | File::CREAT | File::EXCL, 0o600).close
+    open_database(temporary) do |db|
+      db.execute('PRAGMA journal_mode = DELETE')
+      db.transaction(:immediate) do
+        create_schema(db)
+        if legacy
+          expires_at = Time.now.to_i + SESSION_TTL
+          legacy['owners'].each do |id, row|
+            insert_owner(db, id, row)
+            insert_session(db, row['session_hash'], id, expires_at)
+          end
+          legacy['subscriptions'].each do |id, row|
+            insert_subscription(db, id, { 'owner' => row['owner'], 'token' => row['token'],
+                                         'name' => row.fetch('name', '未命名配置'), 'config' => row['config'],
+                                         'source' => row['source'], 'updated_at' => row['updated_at'] })
+          end
+        end
+        check_capacity(db)
+      end
+      verify_database(db)
+    end
+    File.open(temporary) { |file| file.fsync }
+    # Marker is durable BEFORE publication. A crash in this narrow window fails
+    # closed rather than reimporting stale credentials from the JSON backup.
+    mark_initialized(lock)
+    File.rename(temporary, @path)
+    File.open(@directory) { |directory| directory.fsync }
+  ensure
+    File.unlink(temporary) if temporary && File.exist?(temporary)
+  end
+
+  def create_schema(db)
+    hex = "length(%s) = 64 AND %s NOT GLOB '*[^0-9a-f]*'"
+    db.execute_batch(<<~SQL)
+      CREATE TABLE owners (
+        id TEXT PRIMARY KEY NOT NULL CHECK (#{hex % %w[id id]}),
+        recovery_hash TEXT NOT NULL UNIQUE CHECK (#{hex % %w[recovery_hash recovery_hash]}),
+        storage_bytes INTEGER NOT NULL CHECK (storage_bytes > 0)
+      ) STRICT;
+      CREATE TABLE sessions (
+        session_hash TEXT PRIMARY KEY NOT NULL CHECK (#{hex % %w[session_hash session_hash]}),
+        owner TEXT NOT NULL REFERENCES owners(id),
+        expires_at INTEGER NOT NULL CHECK (expires_at > 0),
+        storage_bytes INTEGER NOT NULL CHECK (storage_bytes > 0)
+      ) STRICT;
+      CREATE INDEX sessions_owner ON sessions(owner);
+      CREATE INDEX sessions_expiry ON sessions(expires_at);
+      CREATE TABLE subscriptions (
+        id TEXT PRIMARY KEY NOT NULL CHECK (#{hex % %w[id id]}),
+        owner TEXT NOT NULL REFERENCES owners(id),
+        token TEXT NOT NULL UNIQUE CHECK (#{hex % %w[token token]}),
+        name TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND #{MAX_NAME}),
+        config TEXT NOT NULL CHECK (length(CAST(config AS BLOB)) BETWEEN 1 AND #{MAX_CONFIG}),
+        source TEXT CHECK (source IS NULL OR length(CAST(source AS BLOB)) BETWEEN 1 AND #{MAX_SOURCE}),
+        updated_at TEXT NOT NULL,
+        storage_bytes INTEGER NOT NULL CHECK (storage_bytes > 0)
+      ) STRICT;
+      CREATE INDEX subscriptions_owner ON subscriptions(owner);
+      PRAGMA application_id = #{APPLICATION_ID};
+      PRAGMA user_version = 1;
+    SQL
+  end
+
+  # Older JSON gems ignore allow_duplicate_key, so retain a duplicate-checking
+  # object class too. Never silently discard ambiguous legacy credentials.
+  class LegacyObject < Hash
+    def []=(key, value)
+      raise 'duplicate legacy key' if key?(key)
+
+      super
+    end
+  end
+
+  def load_legacy
+    File.chmod(0o600, @legacy_path)
+    raise 'invalid store size' unless File.size(@legacy_path).between?(1, MAX_BYTES)
+
+    data = JSON.parse(File.binread(@legacy_path), object_class: LegacyObject, allow_duplicate_key: false)
+    valid = data.is_a?(Hash) && data['version'] == 1 && data['owners'].is_a?(Hash) && data['subscriptions'].is_a?(Hash)
+    raise 'invalid store' unless valid
+    raise 'invalid store limits' if data['owners'].size > MAX_OWNERS || data['subscriptions'].size > MAX_SUBSCRIPTIONS
+
+    data['owners'].each do |id, row|
+      raise 'invalid owner' unless id.match?(TOKEN) && row.is_a?(Hash) && %w[session_hash recovery_hash].all? { |key| row[key].is_a?(String) && row[key].match?(TOKEN) }
+    end
+    counts = Hash.new(0)
+    data['subscriptions'].each do |id, row|
+      unless id.match?(TOKEN) && row.is_a?(Hash) && data['owners'].key?(row['owner']) && row['token'].is_a?(String) && row['token'].match?(TOKEN) && row['updated_at'].is_a?(String)
+        raise 'invalid subscription'
+      end
+      counts[row['owner']] += 1
+      raise 'invalid owner subscription limit' if counts[row['owner']] > MAX_PER_OWNER
+
+      validate_config(row['config'])
+      validate_name(row['name']) if row.key?('name')
+      validate_source(row['source']) unless row['source'].nil?
+    end
+    data
+  rescue StandardError
+    raise unavailable
+  end
 
   def validate_name(name)
     unless name.is_a?(String) && name.strip.length.between?(1, MAX_NAME) && !name.match?(/[[:cntrl:]]/)
@@ -238,48 +470,5 @@ class SubscriptionStore
     end
     anchors[anchor] = cost if anchor
     cost
-  end
-
-  def load_data
-    raise 'invalid store size' unless File.size(@path).between?(1, MAX_BYTES)
-
-    data = JSON.parse(File.binread(@path))
-    valid = data.is_a?(Hash) && data['version'] == 1 && data['owners'].is_a?(Hash) && data['subscriptions'].is_a?(Hash)
-    raise 'invalid store' unless valid
-    raise 'invalid store limits' if data['owners'].size > MAX_OWNERS || data['subscriptions'].size > MAX_SUBSCRIPTIONS
-
-    data['owners'].each do |id, row|
-      raise 'invalid owner' unless id.match?(TOKEN) && row.is_a?(Hash) && %w[session_hash recovery_hash].all? { |key| row[key].is_a?(String) && row[key].match?(TOKEN) }
-    end
-    data['subscriptions'].each do |id, row|
-      unless id.match?(TOKEN) && row.is_a?(Hash) && data['owners'].key?(row['owner']) && row['token'].is_a?(String) && row['token'].match?(TOKEN) && row['config'].is_a?(String) && row['config'].bytesize.between?(1, MAX_CONFIG) && row['updated_at'].is_a?(String)
-        raise 'invalid subscription'
-      end
-      validate_name(row['name']) if row.key?('name')
-      unless row['source'].nil? || (row['source'].is_a?(String) && row['source'].bytesize.between?(1, MAX_SOURCE))
-        raise 'invalid subscription source'
-      end
-    end
-    data
-  rescue StandardError
-    raise WebError.new(503, '订阅存储不可用，请检查权限或从备份恢复')
-  end
-
-  def persist(data)
-    bytes = JSON.generate(data)
-    raise WebError.new(409, '存储容量已满') if bytes.bytesize > MAX_BYTES
-
-    temporary = File.join(@directory, ".subscriptions-#{token}")
-    begin
-      File.open(temporary, File::WRONLY | File::CREAT | File::EXCL, 0o600) do |file|
-        file.write(bytes)
-        file.flush
-        file.fsync
-      end
-      File.rename(temporary, @path)
-      File.open(@directory) { |directory| directory.fsync }
-    ensure
-      File.unlink(temporary) if File.exist?(temporary)
-    end
   end
 end

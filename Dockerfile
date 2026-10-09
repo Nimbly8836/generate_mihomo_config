@@ -6,6 +6,14 @@ ENV HOST=0.0.0.0 \
 
 WORKDIR /app
 
+# Build the pinned SQLite binding on both AMD64 and ARM64; keep only runtime libs.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential pkg-config libsqlite3-dev \
+    && gem install sqlite3 --version 2.8.1 --platform ruby --no-document -- --enable-system-libraries \
+    && apt-mark manual libsqlite3-0 \
+    && apt-get purge -y --auto-remove build-essential pkg-config libsqlite3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --gid 10001 app \
     && useradd --uid 10001 --gid app --no-log-init --create-home app \
     && install -d -m 0700 -o 10001 -g 10001 /data

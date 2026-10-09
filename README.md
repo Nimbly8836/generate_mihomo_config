@@ -19,10 +19,16 @@ ruby generate_mihomo_config.rb -v config-values.yaml
 
 项目提供一个本地 Ruby Web 前端，用于编辑 `values.yaml` 并生成、下载 `config.yaml`：
 
+本地 Web 运行需要 Ruby 3.2+ 和 `sqlite3` gem（固定 2.8.1，SQLite 3.37+）；纯命令行生成器不需要 SQLite。
+
 ```bash
+gem install --user-install sqlite3 --version 2.8.1 --no-document
 ruby web_server.rb
 # 浏览器打开 http://127.0.0.1:4567
 ```
+
+若平台没有预编译 gem，需要 C/C++ 编译工具、make 和 pkg-config；可安装系统 SQLite 开发包后使用
+`gem install --user-install sqlite3 --version 2.8.1 --platform ruby --no-document -- --enable-system-libraries`（Debian/Ubuntu：`build-essential pkg-config libsqlite3-dev`）。Docker 已安装绑定和运行库，CI 也安装同一版本。
 
 生成过程使用临时目录，不会覆盖仓库中的 `config-values.yaml` 或其他配置文件。可通过环境变量修改监听地址和端口：
 
@@ -62,8 +68,9 @@ HOST=127.0.0.1 PORT=4567 ruby web_server.rb
 - 旧订阅若未保存源文件，会提示手动补录 `values.yaml` 后重新生成并更新；不会从成品反推源文件。旧链接和原成品继续可用。
 - **更多操作**：重命名、用最新生成配置更新选中订阅、重置链接或删除。重置/删除需确认，旧 URL 立即返回 404；已下载的配置无法远程撤回。
 - 首次取得身份时显示恢复码，请在“我的配置订阅 → 身份与恢复码”中复制并离线保管。后端只存恢复码与会话凭据的 SHA-256 摘要，无法再次导出旧码。
-- **生成新恢复码** 立即废弃旧码；**导入恢复码** 为一次性恢复，注销此前的浏览器会话并同时换发新会话和新恢复码。请保存新码；需要切换身份时先备份当前身份的恢复码。
-- Cookie 和恢复码同时丢失，便无法再管理原订阅；服务没有管理员找回入口。Cookie 默认保留一年（浏览器仍可能提前清除）。
+- **导入恢复码** 可长期重复使用，同一身份可在多台设备同时登录，恢复不会换码或注销其他设备。当前浏览器已登录该身份时复用现有会话；否则创建独立设备会话。导入后页面显示的是你提交的原码，不是服务器重新导出的秘密。
+- **重置恢复码** 是唯一使旧恢复码失效的操作；返回的新码仍长期有效，重置不会退出任何已登录设备。需要切换身份时先备份当前身份的恢复码。**恢复码泄露后应立即重置，但这不会撤销攻击者已建立的会话**；当前没有单设备/全部设备退出管理入口，疑似会话泄露需停止服务并由运营者处理数据及相关配置密钥。
+- Cookie 和恢复码同时丢失，便无法再管理原订阅；服务没有管理员找回入口。Cookie/服务器会话从创建起最长保留一年（浏览器仍可能提前清除），到期可用恢复码重新登录；恢复码本身没有有效期。
 
 源配置、配置快照、订阅令牌、恢复码不写入 localStorage；仅保留主题和输入模式偏好，也不再读取旧版的 YAML 本地缓存。恢复码只在当前页面内存中显示。刷新页面会丢失未发布的修改；旧版已留下的浏览器缓存可手动清理。
 订阅永久保留到主动删除或存储丢失；身份不会自动清理，以免破坏恢复能力。
@@ -173,19 +180,36 @@ HTTPS origin 会设置 `Secure; HttpOnly; SameSite=Strict` Cookie，本地 HTTP 
 
 #### 存储、安全与运行限制
 
-持久化是带 flock 锁的有界 JSON 文件，写入通过同目录临时文件、fsync 和原子 rename 完成；更新、URL 重置、删除和恢复均在一次事务中完成。
-请使用支持 flock/原子 rename/fsync 的本地持久卷，单实例部署；不要跨不可靠的网络文件系统共享数据。
-文件损坏、初始化后文件丢失或不可写时请求失败，不会静默重建数据库。修复权限或停止服务后恢复完整备份（含 `.lock` 文件）；不要手工删除锁文件。
-备份卷前建议停止服务，离线加密备份并限制访问；存储包含明文配置密码、WG 私钥及只读令牌，**不是加密保险箱**。
+持久化使用 `DATA_DIR/subscriptions.sqlite3`：身份、设备会话与订阅分别按行存储，会话摘要、会话到期时间、恢复摘要、只读令牌和所属身份均有索引；只查询/更新目标行，不再读取或重写整份 JSON。写操作使用 SQLite `BEGIN IMMEDIATE` 事务（含容量检查），读操作使用一致性事务；启用外键、`synchronous=FULL`、DELETE 回滚日志和 `secure_delete`。不保留历史内容，但文件系统快照、备份和异常中断留下的日志仍可能含秘密。
+请使用支持 SQLite 文件锁、flock/原子 rename/fsync 的本地持久卷，单实例部署；不要跨不可靠的网络文件系统共享数据。
+文件损坏、初始化后数据库丢失、被替换或不可写时请求失败，不会静默重建数据库或重新导入旧 JSON。修复权限或停止服务后恢复完整备份（含 `subscriptions.lock` 及可能存在的 SQLite 回滚日志）；不要手工删除锁文件或在线替换数据库。
+备份前停止服务并复制整个数据目录，离线加密备份并限制访问；存储包含明文配置密码、WG 私钥及只读令牌，**不是加密保险箱**。不支持旧版服务与新版服务同时访问同一数据目录。
 
-固定限制（见 `lib/subscription_store.rb` / `lib/web_security.rb`）：1000 个身份，每身份一个有效会话、一个恢复码；每身份 20 个订阅、全局 1000 个；单份成品与源文件各 512 KiB、名称 1–80 字符、序列化数据库 32 MiB；请求体 1 MiB、请求头 16 KiB，读/写连接各 5 秒。
-超限拒绝且不改动原订阅；身份容量满后需运营者规划备份/迁移，不会自动删除旧用户。
+**旧 JSON 自动迁移**：升级前停止旧服务并备份完整数据目录。首次启动会在旧锁文件保护下完整校验 `subscriptions.json`，在临时 SQLite 数据库的单个事务中导入，再 fsync/原子安装；身份 ID、会话/恢复摘要、订阅 ID、令牌、名称、更新时间、成品与源文件原文均保留，旧链接无需更换。原 `session_hash` 迁入独立设备会话表，并从迁移时起获得完整一年的服务器有效期（浏览器 Cookie 自身到期日不延长）；原恢复码从此可重复使用，直到主动重置。旧条目缺少名称/源文件时使用默认名称/空源文件。无效结构、重复凭据/键、损坏 YAML 或超限数据会阻止启动，不会跳过坏记录或创建空身份库。导入提交前失败可修复旧文件后重试。
+迁移完成后 `subscriptions.json` 原样保留为 0600 的**敏感、静态旧备份**，不再读取或更新，数据库始终优先；它可能包含已经撤销的会话摘要/恢复摘要、旧令牌和已删除的配置。验证现有 Cookie、恢复能力和订阅链接并另做 SQLite 备份后，可安全移走或删除旧 JSON；不要把它公开、提交到 Git，或当作最新备份恢复。恢复旧备份会回滚撤销状态，可能重新启用旧凭据/链接。
+初始化标记先于数据库安装持久化，以防旧凭据意外复活；若恰在两者之间断电/失败，服务将拒绝启动，需离线恢复完整备份（或由运营者核验遗留 `.subscriptions-*.sqlite3` 后恢复为正式数据库），不会冒险自动重新迁移。迁移前失败遗留的临时文件也按敏感备份处理；确认无用后离线删除。
+
+固定限制（见 `lib/subscription_store.rb` / `lib/web_security.rb`）：1000 个身份，每身份一个长期恢复码、多个独立设备会话；每身份 20 个订阅、全局 1000 个；单份成品与源文件各 512 KiB、名称 1–80 字符、逻辑数据 32 MiB（按每行 JSON 等价字节数记账，包含设备会话、名称/空源字段及少量分隔开销；SQLite 页、索引、回滚日志和旧 JSON 备份另占磁盘空间，不受此逻辑上限约束）；请求体 1 MiB、请求头 16 KiB，读/写连接各 5 秒。
+超限拒绝且不改动原订阅/恢复码/设备会话；身份容量满后需运营者规划备份/迁移，不会自动删除旧用户。
+设备数量没有任意的小额上限，也不驱逐旧设备；新增会话受同一 32 MiB 事务容量及请求限速约束。每次创建会话时按索引清除过期会话，未过期会话不被清理；当前身份的有效会话复用不占新增空间。大量未到期会话仍可能耗尽容量，运营者需监测并规划存储；恢复码从不过期。
 内置固定分钟窗口限速：直接 TCP 对端 120 请求/分钟、全局 1200 请求/分钟；限速表最多 1024 项，每分钟清空。反向代理后所有用户共享代理 IP 配额，重启也会清空限速窗口。
 这是小型串行 Ruby TCP 服务，**不是生产级 DDoS 防护**。匿名发布天然可能被滥用或占满容量。
 反向代理还应设置连接数、请求/生成频率、请求体大小、读写与上游超时，并按真实客户端地址限流（仅在代理层信任自己的转发链）；不要将后端端口直接公开。
 关闭或脱敏 `/s/*` 的访问日志，也不要记录 Cookie、恢复请求体或配置。服务自身不记录请求路径、令牌或生成器输出。
 所有响应均使用 `Cache-Control: private, no-store`、`Referrer-Policy: no-referrer` 和 `nosniff`；代理也不得缓存订阅/管理响应。
 旧生成 API 保持无 Cookie 的兼容调用方式；它们只生成/暂存结果，不能管理持久订阅，同样受请求大小、输出大小及速率限制。
+
+#### 本地验证
+
+```bash
+gem install --user-install minitest --version '~> 5.25' --no-document
+gem install --user-install sqlite3 --version 2.8.1 --no-document
+ruby -Itest test/generate_mihomo_config_test.rb
+ruby -Itest test/subscription_store_test.rb
+ruby -Itest test/subscription_store_migration_test.rb
+ruby -Itest test/web_subscriptions_test.rb
+node --test test/web_form_test.cjs
+```
 
 #### 本地构建（无需等待 GHCR 发布）
 
@@ -245,8 +269,8 @@ curl -OJ http://127.0.0.1:4567/api/v1/configs/<id>/download
 | `PATCH /api/subscriptions/<id>` | `{name}`；只重命名，源文件、成品与 URL 不变 |
 | `POST /api/subscriptions/<id>/reset` | `{}`；更换只读 URL，返回新元数据 |
 | `DELETE /api/subscriptions/<id>` | `{}`；删除，返回 `{deleted: true}` |
-| `POST /api/identity/recovery` | `{}`；废弃旧恢复码，返回新的 `recovery_code` |
-| `POST /api/identity/recover` | `{recovery_code: "..."}`；一次性消费，换发 Cookie 与新恢复码 |
+| `POST /api/identity/recovery` | `{}`；显式重置旧恢复码，返回新的 `recovery_code`，所有已登录设备保持有效 |
+| `POST /api/identity/recover` | `{recovery_code: "..."}`；可重复使用，新设备设置独立 Cookie，已有同身份有效 Cookie 则复用且不再设置 Cookie；始终返回 `recovery_code: null`，原恢复码保持有效 |
 | `GET /s/<token>` | 无需 Cookie；只读原始完整 YAML 字节，失效令牌返回 404 |
 
 身份 ID、管理会话、恢复码、订阅 ID 与只读令牌分别使用独立的 32 字节加密随机数。ID 不是凭据。
