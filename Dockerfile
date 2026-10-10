@@ -20,7 +20,7 @@ RUN groupadd --gid 10001 app \
 
 # Explicitly copy application sources only, never private values or output YAML.
 COPY generate_mihomo_config.rb config-template.yaml.erb web_server.rb ./
-COPY lib/wireguard_config.rb lib/subscription_store.rb lib/web_security.rb ./lib/
+COPY lib/wireguard_config.rb lib/failover_config.rb lib/subscription_store.rb lib/web_security.rb ./lib/
 COPY web/index.html ./web/index.html
 COPY web/favicon.svg ./web/favicon.svg
 COPY config-values.example.yaml ./config-values.example.yaml

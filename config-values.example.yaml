@@ -52,7 +52,7 @@ group_providers: {}
 #   my_proxy: [main]
 #   combined: [main, backup]  # 新建 select 组，并加入 final
 
-# 手写节点只进入 my_proxy，不加入地区组；my_proxy 为空时回退 DIRECT
+# 手写节点默认只进入 my_proxy，不加入地区组；可通过 failover.backup_nodes 显式用于保底
 local_proxies:
   - name: local_ss
     type: ss
@@ -60,6 +60,19 @@ local_proxies:
     port: 8388
     cipher: aes-128-gcm
     password: change-me
+
+# 可选自动故障转移：机场优先，自建节点保底。{} 不启用，不改默认选择。
+# 启用后需在客户端把 proxy 选为 failover；空组/全部失败不会自动直连。
+# 请先将 local_ss 替换为真正可用的自建节点；所选订阅的健康检查会同步覆盖。
+failover: {}
+# failover:
+#   primary: [main, backup]       # 优先机场订阅，同名来源全部纳入
+#   backup_nodes: [local_ss]      # 自建裸节点：local_proxies 中的名称，不是组名
+#   # backup: [self_hosted]       # 或自建节点订阅：需先在 proxy_providers 定义，与 primary 不重叠
+#   url: https://www.google.com/generate_204
+#   expected_status: 204
+#   interval: 30                 # 秒；节点多时可调为 60–120
+#   timeout: 5000                # 毫秒
 
 # WG 内网快速配置：自动生成独立分组和规则；final 可手动选择，默认不走 WG。
 # 将下面的注释示例取消注释，并替换 wireguard: []；密钥占位符必须换成真实值。

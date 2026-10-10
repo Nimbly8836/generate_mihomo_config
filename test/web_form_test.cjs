@@ -382,6 +382,7 @@ function page(ip4p, extraFields = {}) {
       elements.set(key, {
         value: "",
         open: false,
+        dataset: {},
         showModal() {
           this.open = true;
         },
@@ -445,7 +446,11 @@ function page(ip4p, extraFields = {}) {
       querySelector: element,
       documentElement: element("root"),
       createElement() {
-        return {};
+        return {
+          append(...children) {
+            this.children = children;
+          },
+        };
       },
     },
     localStorage: {
@@ -1119,6 +1124,127 @@ test("invalid MRS/classical combination is rejected before a request", async () 
   await element("#form").onsubmit({ preventDefault() {} });
   assert.equal(requests.length, 0);
   assert.match(element("#status").textContent, /不支持 classical/);
+});
+
+test("invalid failover probe controls reveal both collapsed settings panels", () => {
+  const { element } = page(false);
+  const target = {};
+  for (const id of ["#failover-settings", "#failover-probe-settings"])
+    element(id).contains = (item) => item === target;
+  element("#form").listeners.invalid({ target });
+  assert.equal(element("#failover-settings").open, true);
+  assert.equal(element("#failover-probe-settings").open, true);
+  assert.equal(element("#advanced-settings").open, false);
+});
+
+test("failover is opt-in and only an enabled group appears in rule targets", async () => {
+  const { element, requests } = page(false, { failover_interval: "invalid" });
+  assert.equal(element("#failover-options").disabled, true);
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.equal(requests[0].values.failover, undefined);
+  assert.ok(
+    !element("#policy-targets").children.some(
+      (option) => option.value === "failover",
+    ),
+  );
+});
+
+test("failover form renders separate airport and self-hosted pools end to end", async () => {
+  const { element, requests } = page(false, {
+    providers:
+      "airport | https://example.com/a.yaml\nairport | https://example.com/b.yaml\nown | https://example.com/own.yaml",
+    failover_enabled: "on",
+    failover_primary: ["airport"],
+    failover_backup: ["own"],
+    group_rules: "failover: DOMAIN-SUFFIX,example.net",
+  });
+  assert.equal(element("#failover-options").disabled, false);
+  assert.equal(element("#failover-primary-sources").children.length, 2);
+  assert.ok(
+    element("#policy-targets").children.some(
+      (option) => option.value === "failover",
+    ),
+  );
+  assert.ok(
+    !element("#subscription-group-targets").children.some(
+      (option) => option.value === "failover",
+    ),
+  );
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.equal(requests.length, 1);
+  const values = requests[0].values;
+  assert.deepEqual(values.failover.primary, ["airport"]);
+  assert.deepEqual(values.failover.backup, ["own"]);
+  assert.equal(values.failover.interval, 30);
+  assert.equal(values.failover.expected_status, 204);
+  const config = renderConfig(values);
+  const groups = Object.fromEntries(
+    config["proxy-groups"].map((group) => [group.name, group]),
+  );
+  assert.deepEqual(groups.failover.proxies, [
+    "failover_primary",
+    "failover_backup",
+  ]);
+  assert.deepEqual(groups.failover_primary.use, ["airport", "airport__2"]);
+  assert.deepEqual(groups.failover_backup.use, ["own"]);
+  assert.ok(config.rules.includes("DOMAIN-SUFFIX,example.net,failover"));
+});
+
+test("invalid failover choices fail before sending a generation request", async () => {
+  const base = {
+    providers: "airport | https://example.com/a\nown | https://example.com/b",
+    failover_enabled: "on",
+    failover_primary: ["airport"],
+    failover_backup: ["own"],
+  };
+  for (const invalid of [
+    { failover_primary: [] },
+    { failover_backup: [] },
+    { failover_backup: ["airport"] },
+    { failover_backup: ["missing"] },
+    { failover_interval: "0" },
+    { failover_status: "600" },
+    { failover_url: "file:///bad" },
+    {
+      subscription_group_name: ["failover"],
+      subscription_group_id: ["1"],
+      subscription_group_sources_1: ["airport"],
+    },
+  ]) {
+    const { element, requests } = page(false, { ...base, ...invalid });
+    await element("#form").onsubmit({ preventDefault() {} });
+    assert.equal(requests.length, 0);
+    assert.equal(element("#status").hidden, false);
+  }
+});
+
+test("failover source labels are safe and refresh preserves independent selections", () => {
+  const { element, fields } = page(false, {
+    providers:
+      "airport | https://example.com/a\n<img src=x> | https://example.com/b",
+  });
+  const primary = element("#failover-primary-sources"),
+    backup = element("#failover-backup-sources");
+  assert.equal(backup.children[1].children[1].textContent, "<img src=x>");
+  assert.equal(backup.children[1].innerHTML, undefined);
+  primary.children[0].children[0].checked = true;
+  backup.children[1].children[0].checked = true;
+  primary.querySelectorAll = () =>
+    primary.children
+      .map((label) => label.children[0])
+      .filter((input) => input.checked);
+  backup.querySelectorAll = () =>
+    backup.children
+      .map((label) => label.children[0])
+      .filter((input) => input.checked);
+  const previous = primary.children;
+  element("#form-editor").oninput();
+  assert.equal(primary.children, previous);
+  fields.providers += "\nnew | https://example.com/c";
+  element("#form-editor").oninput();
+  assert.equal(primary.children[0].children[0].checked, true);
+  assert.equal(backup.children[1].children[0].checked, true);
+  assert.equal(primary.children[1].children[0].checked, false);
 });
 
 function renderConfig(values) {

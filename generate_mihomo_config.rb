@@ -7,6 +7,7 @@ require 'pathname'
 require 'psych'
 require 'securerandom'
 require_relative 'lib/wireguard_config'
+require_relative 'lib/failover_config'
 
 DEFAULT_TEMPLATE = 'config-template.yaml.erb'
 DEFAULT_OUTPUT = 'config.yaml'
@@ -274,6 +275,13 @@ class TemplateContext
       end
     end
     Psych.dump(config)
+  end
+
+  def configure_failover(output)
+    FailoverConfig.new(@values['failover'], provider_aliases: @provider_aliases, local_proxies: local_proxies).apply(output)
+  rescue ArgumentError => e
+    warn e.message
+    exit 1
   end
 
   # A logical subscription can have multiple physical providers. Expand explicit
@@ -752,8 +760,10 @@ values, applied_defaults = apply_defaults(load_yaml_file(options[:values]))
 template = File.read(options[:template])
 context = TemplateContext.new(values)
 output = ERB.new(template, trim_mode: '-').result(context.get_binding)
-output = context.configure_group_providers(output)
+# Text insertion must precede Psych.dump transformations (which use indentless lists).
 output = append_fake_ip_filter(output, context.fake_ip_filter)
+output = context.configure_group_providers(output)
+output = context.configure_failover(output)
 output = apply_config_overrides(output, values['config_overrides'])
 output = context.expand_provider_uses(output)
 

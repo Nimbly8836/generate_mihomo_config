@@ -80,6 +80,27 @@ class WebSmokeTest < Minitest::Test
     end
   end
 
+  def test_failover_generation_includes_ordered_pools_and_extra_fake_ip_filters
+    response = request('/api/generate', 'values' => {
+      'web_secret' => 'smoke-test-only',
+      'proxy_providers' => [{ 'name' => 'airport', 'url' => 'https://example.com/nodes.yaml' }],
+      'local_proxies' => [{ 'name' => 'own', 'type' => 'http', 'server' => '127.0.0.1', 'port' => 12345 }],
+      'failover' => { 'primary' => ['airport'], 'backup_nodes' => ['own'] },
+      'fake_ip_filter' => ['smoke.example']
+    })
+    assert_equal '200', response.code
+    result = JSON.parse(response.body)
+    config = Psych.safe_load(result.fetch('config'), aliases: true)
+    groups = config.fetch('proxy-groups').to_h { |group| [group['name'], group] }
+    assert_equal %w[failover_primary failover_backup], groups['failover']['proxies']
+    assert_equal ['own'], groups['failover_backup']['proxies']
+    assert_equal 'REJECT', groups['failover']['empty-fallback']
+    assert_equal '204', config['proxy-providers']['airport']['health-check']['expected-status']
+    assert_equal 30, config['proxy-providers']['airport']['health-check']['interval']
+    assert_includes config['dns']['fake-ip-filter'], 'smoke.example'
+    assert_equal ['own'], Psych.safe_load(result.fetch('source'))['failover']['backup_nodes']
+  end
+
   def test_form_api_applies_ip4p_override
     response = request('/api/generate', 'values' => {
                          'proxy_providers' => [], 'local_proxies' => [], 'web_secret' => 'smoke-test-only',

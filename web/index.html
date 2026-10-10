@@ -183,6 +183,21 @@
           <button type="button" id="add-subscription-group">添加分组</button>
           <datalist id="subscription-group-targets"></datalist>
         </details>
+        <details id="failover-settings">
+          <summary>机场优先 · 自建节点保底</summary>
+          <label class="checkbox"><input name="failover_enabled" type="checkbox">启用自动故障转移组 failover</label>
+          <p class="hint">优先使用机场，探测失败后切到自建线路，恢复后自动回到机场。生成后请在客户端将 proxy 选为 failover；不会自动改变现有选择，也不会回退直连。</p>
+          <fieldset id="failover-options" disabled>
+            <div id="failover-sources" class="grid"><div><h3>优先订阅（机场）</h3><div id="failover-primary-sources"></div></div><div><h3>保底订阅（自建线路）</h3><div id="failover-backup-sources"></div></div></div>
+            <p class="hint">先在上方填写节点订阅，再分别勾选，两侧不能重复。自建裸节点可在 YAML 中用 local_proxies 定义，并通过 failover.backup_nodes 指定；内网 WG 不会自动加入。</p>
+            <details id="failover-probe-settings"><summary>探测设置（可选）</summary><div class="grid">
+              <label>探测 URL<input name="failover_url" type="url" value="https://www.google.com/generate_204"></label>
+              <label>期望 HTTP 状态码<input name="failover_status" type="number" min="100" max="599" value="204"></label>
+              <label>检查间隔（秒）<input name="failover_interval" type="number" min="1" max="3600" value="30"></label>
+            </div></details>
+            <p class="hint">默认持续检测、5 秒超时，所选订阅的健康检查也会同步调整。建议使用可信 HTTPS 探测地址。测速成功不代表所有网站可用；切换需要探测时间，旧连接可能需要重试。</p>
+          </fieldset>
+        </details>
       </section>
       <details id="advanced-settings">
         <summary>高级配置<span class="advanced-description">实验功能、WireGuard、自定义规则和外部规则集（可选）</span></summary>
@@ -337,6 +352,10 @@
     form.addEventListener('invalid', event => {
       if (advancedSettings.contains(event.target)) advancedSettings.open = true;
       if (subscriptionGroupSettings.contains(event.target)) subscriptionGroupSettings.open = true;
+      for (const id of ['#failover-settings', '#failover-probe-settings']) {
+        const details = document.querySelector(id);
+        if (details.contains(event.target)) details.open = true;
+      }
     }, true);
     let config = '', mode = localStorage.getItem('mihomo-mode') || 'form';
     const regions = ['hk', 'jp', 'tw', 'sg', 'us', 'kr', 'eu', 'others'];
@@ -381,18 +400,20 @@
     function targetNames(data) {
       const wgGroups = data.getAll('wg_name').map(name => String(name).trim()).filter(validName).map(name => `wg_${name}`);
       const subscriptionGroups = data.getAll('subscription_group_name').map(name => String(name).trim()).filter(Boolean);
-      return [...new Set([...baseGroups, ...(data.get('group_mode') === 'detailed' ? detailedGroups : []), ...autoGroups, 'DIRECT', 'REJECT', ...wgGroups, ...subscriptionGroups])];
+      return [...new Set([...baseGroups, ...(data.get('group_mode') === 'detailed' ? detailedGroups : []), ...autoGroups, ...(data.get('failover_enabled') === 'on' ? ['failover'] : []), 'DIRECT', 'REJECT', ...wgGroups, ...subscriptionGroups])];
     }
     function updateGroupHelp() {
       const data = new FormData(form);
       const detailed = data.get('group_mode') === 'detailed';
-      const visible = [...baseGroups, ...(detailed ? detailedGroups : [])];
+      const visible = [...baseGroups, ...(detailed ? detailedGroups : []), ...(data.get('failover_enabled') === 'on' ? ['failover'] : [])];
+      document.querySelector('#failover-options').disabled = data.get('failover_enabled') !== 'on';
       const wgGroups = targetNames(data).filter(name => name.startsWith('wg_'));
       document.querySelector('#group-help').textContent = `当前 ${detailed ? 'detailed' : 'simple'} 内置组：${visible.join('、')}` + (wgGroups.length ? `。本表单 WG 组：${wgGroups.join('、')}` : '');
       document.querySelector('#auto-group-help').textContent = autoGroups.join('、');
       const options = targetNames(data).map(name => { const option = document.createElement('option'); option.value = name; return option; });
       document.querySelector('#policy-targets').replaceChildren(...options);
-      const groups = targetNames(data).filter(name => !['DIRECT', 'REJECT'].includes(name));
+      const protectedGroups = data.get('failover_enabled') === 'on' ? ['failover', 'failover_primary', 'failover_backup'] : [];
+      const groups = targetNames(data).filter(name => !['DIRECT', 'REJECT', ...protectedGroups].includes(name));
       document.querySelector('#subscription-group-targets').replaceChildren(...groups.map(name => { const option = document.createElement('option'); option.value = name; return option; }));
       updateSubscriptionSources(data);
     }
@@ -401,6 +422,7 @@
     }
     function updateSubscriptionSources(data) {
       const names = subscriptionNames(data), signature = JSON.stringify(names);
+      updateFailoverSources(names, signature);
       for (const card of subscriptionGroupEntries.querySelectorAll('[data-subscription-group]')) {
         if (card.dataset.sources === signature) continue;
         const checked = new Set([...card.querySelectorAll('input[type="checkbox"]:checked')].map(input => input.value));
@@ -416,6 +438,24 @@
         card.querySelector('[data-subscription-sources]').replaceChildren(...choices);
         card.dataset.sources = signature;
       }
+    }
+    function updateFailoverSources(names, signature) {
+      const root = document.querySelector('#failover-sources');
+      if (root.dataset.sources === signature) return;
+      for (const role of ['primary', 'backup']) {
+        const list = document.querySelector(`#failover-${role}-sources`);
+        const checked = new Set([...list.querySelectorAll('input:checked')].map(input => input.value));
+        const choices = names.map(name => {
+          const label = document.createElement('label'); label.className = 'checkbox';
+          const input = document.createElement('input'); input.type = 'checkbox';
+          input.name = `failover_${role}`; input.value = name; input.checked = checked.has(name);
+          const text = document.createElement('span'); text.textContent = name;
+          label.append(input, text); return label;
+        });
+        list.replaceChildren(...choices);
+        if (!names.length) list.textContent = '请先填写节点订阅。';
+      }
+      root.dataset.sources = signature;
     }
     document.querySelector('#add-subscription-group').onclick = () => {
       const card = document.querySelector('#subscription-group-template').content.firstElementChild.cloneNode(true);
@@ -434,6 +474,7 @@
       data.getAll('subscription_group_name').forEach((raw, index) => {
         const name = String(raw).trim(), id = textAt(data, 'subscription_group_id', index);
         if (!name || /[\r\n\0]/.test(name) || ['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'COMPATIBLE', 'GLOBAL'].includes(name)) throw new Error(`订阅分组第 ${index + 1} 项请填写有效的目标组名`);
+        if (data.get('failover_enabled') === 'on' && ['failover', 'failover_primary', 'failover_backup'].includes(name)) throw new Error('保底组的订阅请在“机场优先 · 自建节点保底”中选择');
         const selected = data.getAll(`subscription_group_sources_${id}`);
         if (!selected.length || selected.some(source => !available.has(source))) throw new Error(`订阅分组第 ${index + 1} 项请勾选至少一个当前订阅`);
         groups[name] = [...new Set([...(groups[name] || []), ...selected])];
@@ -540,6 +581,14 @@
         group_providers: readGroupProviders(data),
         wireguard: readWireguard(data), custom_rule_providers: readRuleProviders(data, targets),
       };
+      if (data.get('failover_enabled') === 'on') {
+        const primary = [...new Set(data.getAll('failover_primary'))], backup = [...new Set(data.getAll('failover_backup'))];
+        const available = subscriptionNames(data);
+        if (!primary.length || !backup.length || [...primary, ...backup].some(name => !available.includes(name))) throw new Error('保底组请分别勾选当前机场订阅和自建订阅');
+        if (primary.some(name => backup.includes(name))) throw new Error('机场与保底订阅不能重复，请使用独立的自建线路');
+        values.failover = {primary, backup, url: requireHttpUrl(data.get('failover_url') || 'https://www.google.com/generate_204', '保底探测地址'),
+          expected_status: integer(data.get('failover_status') || '204', '期望状态码', 100, 599), interval: integer(data.get('failover_interval') || '30', '保底检查间隔', 1, 3600)};
+      }
       if (data.get('ip4p') === 'on') values.config_overrides = {experimental: {'dialer-ip4p-convert': true}};
       if (data.get('web_secret').trim()) values.web_secret = data.get('web_secret').trim();
       lines(data.get('providers')).forEach((line, index) => {

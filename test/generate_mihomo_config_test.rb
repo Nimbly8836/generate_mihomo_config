@@ -96,6 +96,139 @@ class GenerateMihomoConfigTest < Minitest::Test
     }
   end
 
+  def test_failover_is_opt_in_and_empty_settings_preserve_output
+    values = provider_present_values.merge('web_secret' => 'test-only')
+    original = nil
+    with_generated_config(values) { |_config, path| original = File.read(path) }
+    with_generated_config(values.merge('failover' => {})) do |config, path|
+      assert_equal original, File.read(path)
+      refute config['proxy-groups'].any? { |group| group['name'] == 'failover' }
+    end
+  end
+
+  def test_failover_prioritizes_all_airport_sources_then_only_explicit_local_nodes
+    %w[simple detailed].each do |mode|
+      values = provider_present_values.merge('group_mode' => mode, 'wireguard' => [wireguard_entry],
+        'failover' => { 'primary' => ['remote_provider'], 'backup_nodes' => ['handwritten'] })
+      values['proxy_providers'] += [
+        { 'name' => 'remote_provider', 'url' => 'https://example.com/second.yaml' },
+        { 'name' => 'unselected', 'url' => 'https://example.com/third.yaml' }
+      ]
+      with_generated_config(values) do |config, path|
+        group = proxy_group(config, 'failover')
+        assert_equal 'fallback', group['type']
+        assert_equal %w[failover_primary failover_backup], group['proxies']
+        assert_equal %w[remote_provider remote_provider__2], proxy_group(config, 'failover_primary')['use']
+        assert_equal ['handwritten'], proxy_group(config, 'failover_backup')['proxies']
+        %w[failover failover_primary failover_backup].each do |name|
+          pool = proxy_group(config, name)
+          assert_equal 'REJECT', pool['empty-fallback']
+          assert_equal '204', pool['expected-status']
+          assert_equal 30, pool['interval']
+          assert_equal 5000, pool['timeout']
+          assert_equal false, pool['lazy']
+          assert_equal 2, pool['max-failed-times']
+          refute_includes Array(pool['proxies']), 'DIRECT'
+          refute_includes Array(pool['proxies']), 'wg_office_node'
+        end
+        assert_equal true, proxy_group(config, 'failover_primary')['hidden']
+        assert_equal true, proxy_group(config, 'failover_backup')['hidden']
+        %w[remote_provider remote_provider__2].each do |name|
+          health = config['proxy-providers'][name]['health-check']
+          assert_equal 30, health['interval']
+          assert_equal false, health['lazy']
+          assert_equal '204', health['expected-status']
+          assert_equal 'https://www.google.com/generate_204', health['url']
+        end
+        assert_equal 300, config['proxy-providers']['unselected']['health-check']['interval']
+        assert_equal 300, config['provider_defaults']['health-check']['interval']
+        %w[default proxy final].each { |name| assert_includes proxy_group(config, name)['proxies'], 'failover' }
+        assert_equal 'all_nodes', proxy_group(config, 'proxy')['proxies'].first
+        assert_equal 'proxy', proxy_group(config, 'final')['proxies'].first
+        %w[my_proxy hk hk_auto all_nodes].each { |name| refute_includes Array(proxy_group(config, name)['proxies']), 'failover' }
+        assert_mihomo_valid(path) if mihomo_available?
+      end
+    end
+  end
+
+  def test_failover_backup_subscriptions_and_custom_checks_override_provider_health
+    values = provider_present_values.merge('failover' => {
+      'primary' => ['remote_provider'], 'backup' => ['self_hosted'],
+      'url' => 'https://example.com/check', 'expected_status' => 200, 'interval' => 45, 'timeout' => 3000
+    })
+    values['proxy_providers'] << { 'name' => 'self_hosted', 'url' => 'https://example.com/self.yaml',
+                                  'health-check' => { 'enable' => false, 'interval' => 900, 'lazy' => true } }
+    with_generated_config(values) do |config, path|
+      assert_equal ['self_hosted'], proxy_group(config, 'failover_backup')['use']
+      refute proxy_group(config, 'failover_backup').key?('proxies')
+      health = config['proxy-providers']['self_hosted']['health-check']
+      assert_equal true, health['enable']
+      assert_equal '200', health['expected-status']
+      assert_equal 45, health['interval']
+      assert_equal 3000, health['timeout']
+      assert_equal false, health['lazy']
+      assert_mihomo_valid(path) if mihomo_available?
+    end
+  end
+
+  def test_failover_rejects_invalid_settings_and_reserved_names_without_overwriting_output
+    valid = { 'primary' => ['remote_provider'], 'backup_nodes' => ['handwritten'] }
+    invalid = [false, [], 'invalid', { 'primary' => ['remote_provider'] },
+               valid.merge('primary' => []), valid.merge('primary' => 'remote_provider'),
+               valid.merge('primary' => ['missing']), valid.merge('backup' => ['remote_provider']),
+               valid.merge('backup_nodes' => ['my_proxy']), valid.merge('backup_nodes' => ['DIRECT']),
+               valid.merge('backup_nodes' => ['wg_office_node']), valid.merge('interval' => 0),
+               valid.merge('interval' => '30'), valid.merge('timeout' => 0),
+               valid.merge('expected_status' => 600), valid.merge('expected_status' => '204'),
+               valid.merge('url' => 'file:///tmp/secret'), valid.merge('url' => 'https://user:secret@example.com'),
+               valid.merge('url' => 'https://example.com/#fragment'), valid.merge('url' => 1),
+               valid.merge('unknown' => true)]
+    cases = invalid.map { |setting| provider_present_values.merge('failover' => setting) }
+    %w[failover failover_primary failover_backup].each do |name|
+      cases << provider_present_values.merge('failover' => valid, 'local_proxy_groups' => [{ 'name' => name, 'type' => 'select', 'proxies' => ['DIRECT'] }])
+      cases << provider_present_values.merge('failover' => valid, 'group_providers' => { name => ['remote_provider'] })
+    end
+    cases << provider_present_values.merge('failover' => valid, 'local_proxies' => [handwritten_proxy(extra: { 'dialer-proxy' => 'proxy' })])
+    cases << provider_present_values.merge('failover' => valid, 'local_proxies' => [handwritten_proxy(extra: { 'type' => 'direct' })])
+    cases.each do |values|
+      Dir.mktmpdir('mihomo-invalid-failover') do |directory|
+        input, output = File.join(directory, 'values.yaml'), File.join(directory, 'config.yaml')
+        File.write(input, YAML.dump(values))
+        File.write(output, 'existing-config')
+        _stdout, stderr, status = Open3.capture3(RbConfig.ruby, GENERATOR, '-v', input, '-t', TEMPLATE, '-o', output)
+        refute status.success?
+        assert_includes stderr, 'failover'
+        refute_includes stderr, 'user:secret'
+        assert_equal 'existing-config', File.read(output)
+      end
+    end
+  end
+
+  def test_failover_and_group_mapping_keep_appended_fake_ip_filters_valid
+    [{}, { 'my_proxy' => ['remote_provider'] }].each do |mapping|
+      values = provider_present_values.merge('failover' => { 'primary' => ['remote_provider'], 'backup_nodes' => ['handwritten'] },
+        'group_providers' => mapping, 'fake_ip_filter' => ['review.example'])
+      with_generated_config(values) do |config, path|
+        assert_includes config['dns']['fake-ip-filter'], 'review.example'
+        assert_includes config['dns']['fake-ip-filter'], '*.lan'
+        %w[failover failover_primary failover_backup].each { |name| assert_includes proxy_group(config, 'final')['proxies'], name }
+        assert_mihomo_valid(path) if mihomo_available?
+      end
+      values['config_overrides'] = { 'dns' => { 'fake-ip-filter' => [] } }
+      with_generated_config(values) { |config, _path| assert_empty config['dns']['fake-ip-filter'] }
+    end
+  end
+
+  def test_final_overrides_still_take_precedence_over_failover
+    overrides = { 'proxy-groups' => [{ 'name' => 'custom', 'type' => 'select', 'proxies' => ['DIRECT'] }], 'rules' => ['MATCH,custom'] }
+    values = provider_present_values.merge('failover' => { 'primary' => ['remote_provider'], 'backup_nodes' => ['handwritten'] }, 'config_overrides' => overrides)
+    with_generated_config(values) do |config, path|
+      assert_equal overrides['proxy-groups'], config['proxy-groups']
+      assert_equal overrides['rules'], config['rules']
+      assert_mihomo_valid(path) if mihomo_available?
+    end
+  end
+
   def empty_provider_values(local_proxies)
     {
       'proxy_providers' => [],
