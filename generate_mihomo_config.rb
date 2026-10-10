@@ -138,6 +138,17 @@ class TemplateContext
   CUSTOM_RULE_PROVIDER_BEHAVIORS = %w[domain ipcidr classical].freeze
   CUSTOM_RULE_PROVIDER_FORMATS = %w[yaml text mrs].freeze
   VALID_GROUP_MODES = %w[simple detailed].freeze
+  SIMPLE_GROUP_NAMES = %w[ai game media chat dev cloud download adult china other].freeze
+  DETAILED_GROUP_PARENTS = {
+    'openai' => 'ai', 'claude' => 'ai', 'gemini' => 'ai', 'copilot' => 'ai',
+    'steam' => 'game', 'epic' => 'game', 'blizzard' => 'game', 'ps' => 'game',
+    'xbox' => 'game', 'nintendo' => 'game',
+    'youtube' => 'media', 'netflix' => 'media', 'disney' => 'media', 'prime' => 'media',
+    'hbo' => 'media', 'twitch' => 'media', 'spotify' => 'media',
+    'telegram' => 'chat', 'discord' => 'chat', 'whatsapp' => 'chat', 'x' => 'chat',
+    'github' => 'dev', 'gitlab' => 'dev', 'docker' => 'dev',
+    'google' => 'cloud', 'apple' => 'cloud', 'microsoft' => 'cloud', 'onedrive' => 'cloud'
+  }.freeze
   DEFAULT_EXTERNAL_UI = './Yacd-meta-gh-pages/'
   DEFAULT_EXTERNAL_UI_URL = 'https://github.com/MetaCubeX/yacd/archive/gh-pages.zip'
   # Single catalog for provider rendering and custom-name collision validation.
@@ -249,6 +260,11 @@ class TemplateContext
     end
     config = Psych.safe_load(output, permitted_classes: [], aliases: true)
     groups = config.fetch('proxy-groups')
+    service_names = group_mode == 'detailed' ? DETAILED_GROUP_PARENTS.keys : ['apple']
+    routing_names = %w[default proxy final] + SIMPLE_GROUP_NAMES + service_names
+    # Capture existing business selectors before adding leaf subscription groups.
+    # Never inject into other custom groups, regional pools or node aggregators.
+    routing_groups = groups.select { |group| routing_names.include?(group['name']) && group['type'] == 'select' }
     reserved = %w[DIRECT REJECT REJECT-DROP PASS COMPATIBLE GLOBAL] + config.fetch('proxies', []).map { |node| node.fetch('name') }
     selections.each do |name, subscriptions|
       unless name.is_a?(String) && !name.strip.empty? && !name.match?(/[\r\n\0]/) && !reserved.include?(name)
@@ -265,8 +281,9 @@ class TemplateContext
       unless group
         group = { 'name' => name, 'type' => 'select', 'proxies' => [], 'empty-fallback' => 'REJECT' }
         groups << group
-        final = groups.find { |entry| entry['name'] == 'final' }
-        final['proxies'] = (final.fetch('proxies') + [name]).uniq if final
+        routing_groups.each do |target|
+          target['proxies'] = (Array(target['proxies']) + [name]).uniq
+        end
       end
       group['use'] = (Array(group['use']) + sources).uniq
       if name == 'my_proxy' && local_proxy_names.empty? && group['proxies'] == ['DIRECT']

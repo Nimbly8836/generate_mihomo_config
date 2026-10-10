@@ -474,17 +474,8 @@ proxies:
 # 策略组
 # ========================
 
-<% simple_groups = %w[ai game media chat dev cloud download adult china other] -%>
-<% detailed_groups = {
-  'openai' => 'ai', 'claude' => 'ai', 'gemini' => 'ai', 'copilot' => 'ai',
-  'steam' => 'game', 'epic' => 'game', 'blizzard' => 'game', 'ps' => 'game',
-  'xbox' => 'game', 'nintendo' => 'game',
-  'youtube' => 'media', 'netflix' => 'media', 'disney' => 'media', 'prime' => 'media',
-  'hbo' => 'media', 'twitch' => 'media', 'spotify' => 'media',
-  'telegram' => 'chat', 'discord' => 'chat', 'whatsapp' => 'chat', 'x' => 'chat',
-  'github' => 'dev', 'gitlab' => 'dev', 'docker' => 'dev',
-  'google' => 'cloud', 'apple' => 'cloud', 'microsoft' => 'cloud', 'onedrive' => 'cloud'
-} -%>
+<% simple_groups = TemplateContext::SIMPLE_GROUP_NAMES -%>
+<% detailed_groups = TemplateContext::DETAILED_GROUP_PARENTS -%>
 <% region_groups = %w[hk jp tw sg us kr eu others] -%>
 <% built_in_groups = %w[default proxy my_proxy ad_block all_nodes final domestic other] + simple_groups + detailed_groups.keys + region_groups -%>
 proxy-groups:

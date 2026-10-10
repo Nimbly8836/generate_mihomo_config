@@ -732,6 +732,62 @@ class GenerateMihomoConfigTest < Minitest::Test
     end
   end
 
+  def test_new_subscription_groups_are_options_in_all_routing_groups_only
+    names = %w[vps_1 vps_2 vps_wg]
+    detailed_names = %w[openai claude gemini copilot steam epic blizzard ps xbox nintendo
+                        youtube netflix disney prime hbo twitch spotify telegram discord whatsapp x
+                        github gitlab docker google apple microsoft onedrive]
+    values = provider_present_values.merge(
+      'proxy_providers' => names.map { |name| { 'name' => name, 'url' => "https://example.com/#{name}.yaml" } },
+      'local_proxy_groups' => [{ 'name' => 'custom_parent', 'type' => 'select', 'proxies' => ['proxy'] }],
+      'wireguard' => [wireguard_entry],
+      'failover' => { 'primary' => ['vps_1'], 'backup' => ['vps_2'] })
+
+    %w[simple detailed].each do |mode|
+      baseline_values = values.merge('group_mode' => mode)
+      with_generated_config(baseline_values) do |baseline, _baseline_path|
+        with_generated_config(baseline_values.merge('group_providers' => names.to_h { |name| [name, [name]] })) do |config, output_path|
+          targets = (ROUTING_GROUP_NAMES + ['proxy'] + (mode == 'detailed' ? detailed_names : [])).uniq
+          baseline.fetch('proxy-groups').each do |original|
+            name = original.fetch('name')
+            actual = proxy_group(config, name)
+            if targets.include?(name)
+              assert_equal names, actual.fetch('proxies').select { |choice| names.include?(choice) }
+              assert_equal original.fetch('proxies').first, actual.fetch('proxies').first
+              actual = actual.merge('proxies' => actual.fetch('proxies') - names)
+            end
+            assert_equal original, actual, "#{mode}: #{name}"
+          end
+          names.each do |name|
+            assert_equal({ 'name' => name, 'type' => 'select', 'proxies' => [],
+                           'empty-fallback' => 'REJECT', 'use' => [name] }, proxy_group(config, name))
+            assert_equal targets.sort, directly_referencing_groups(config, name).sort
+          end
+          assert_mihomo_valid(output_path) if mihomo_available?
+        end
+      end
+    end
+  end
+
+  def test_group_mapping_existing_targets_does_not_inject_them_into_other_groups
+    %w[simple detailed].each do |mode|
+      values = provider_present_values.merge('group_mode' => mode,
+        'local_proxy_groups' => [{ 'name' => 'custom_back_reference', 'type' => 'select', 'proxies' => ['proxy'] }])
+      selections = %w[proxy ai my_proxy hk ad_block custom_back_reference].to_h { |name| [name, ['remote_provider']] }
+      with_generated_config(values) do |baseline, _baseline_path|
+        with_generated_config(values.merge('group_providers' => selections)) do |config, _path|
+          baseline.fetch('proxy-groups').each do |original|
+            expected = original.dup
+            if selections.key?(original.fetch('name'))
+              expected['use'] = (Array(expected['use']) + ['remote_provider']).uniq
+            end
+            assert_equal expected, proxy_group(config, original.fetch('name'))
+          end
+        end
+      end
+    end
+  end
+
   def test_invalid_group_subscriptions_fail_without_overwriting_output
     invalid = ['main', [], { 'my_proxy' => 'main' }, { 'my_proxy' => [] }, { 'my_proxy' => [nil] },
                { 'my_proxy' => ['missing'] }, { 'DIRECT' => ['remote_provider'] },
