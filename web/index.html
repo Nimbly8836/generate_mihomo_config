@@ -5,6 +5,7 @@
   <title>Mihomo 配置生成器</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="/assets/codemirror/codemirror.css">
+  <link rel="stylesheet" href="/assets/codemirror/lint.css">
   <style>
     :root {
       color-scheme: dark;
@@ -117,6 +118,7 @@
     .cm-s-mihomo .cm-string { color: var(--editor-string); }
     .cm-s-mihomo .cm-number { color: var(--editor-number); }
     .cm-s-mihomo .cm-keyword, .cm-s-mihomo .cm-variable-2 { color: var(--editor-keyword); }
+    .CodeMirror-lint-tooltip { background: var(--card); border: 1px solid var(--destructive); color: var(--foreground); box-shadow: var(--shadow); }
     .cm-s-mihomo .cm-comment { color: var(--muted-foreground); }
     .cm-s-mihomo .cm-meta { color: var(--foreground); }
     .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 16px; }
@@ -337,8 +339,11 @@
     </fieldset>
   </template>
 
+  <script src="/assets/codemirror/js-yaml.min.js"></script>
   <script src="/assets/codemirror/codemirror.js"></script>
+  <script src="/assets/codemirror/lint.js"></script>
   <script src="/assets/codemirror/yaml.js"></script>
+  <script src="/assets/codemirror/yaml-lint.js"></script>
   <script>
     const form = document.querySelector('#form'), formEditor = document.querySelector('#form-editor'), fileEditor = document.querySelector('#file-editor'), fileValues = document.querySelector('#file-values'), status = document.querySelector('#status');
     const formMode = document.querySelector('#form-mode'), fileMode = document.querySelector('#file-mode'), themeToggle = document.querySelector('#theme-toggle'), generate = document.querySelector('#generate'), download = document.querySelector('#download');
@@ -373,7 +378,7 @@
     function refreshYamlEditor() {
       if (!yamlEditor && typeof CodeMirror !== 'undefined') {
         yamlEditor = CodeMirror.fromTextArea(fileValues, {
-          mode: 'yaml', theme: 'mihomo', lineNumbers: true, lineWrapping: false,
+          mode: 'yaml', theme: 'mihomo', lineNumbers: true, lineWrapping: false, lint: true,
           indentUnit: 2, tabSize: 2, indentWithTabs: false,
           screenReaderLabel: 'values.yaml 配置编辑器',
           extraKeys: { Tab: 'indentMore', 'Shift-Tab': 'indentLess', Esc: () => generate.focus() }

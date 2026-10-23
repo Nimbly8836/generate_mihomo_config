@@ -30,7 +30,9 @@ rescue Errno::ENOENT
   warn "File not found: #{path}"
   exit 1
 rescue Psych::SyntaxError => e
-  warn "YAML parse error in #{path}: #{e.message}"
+  location = e.line ? "#{path}:#{e.line}:#{e.column}" : path
+  detail = [e.problem, e.context].compact.join(' ').strip
+  warn "YAML parse error in #{location}: #{detail}"
   exit 1
 end
 

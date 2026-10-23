@@ -25,6 +25,10 @@ PUBLIC_FILES = {
   '/examples/values.yaml' => ['text/plain; charset=utf-8', File.join(ROOT, 'config-values.example.yaml')],
   '/assets/codemirror/codemirror.js' => ['text/javascript; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/codemirror.js')],
   '/assets/codemirror/yaml.js' => ['text/javascript; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/yaml.js')],
+  '/assets/codemirror/lint.js' => ['text/javascript; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/lint.js')],
+  '/assets/codemirror/lint.css' => ['text/css; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/lint.css')],
+  '/assets/codemirror/yaml-lint.js' => ['text/javascript; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/yaml-lint.js')],
+  '/assets/codemirror/js-yaml.min.js' => ['text/javascript; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/js-yaml.min.js')],
   '/assets/codemirror/codemirror.css' => ['text/css; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/codemirror.css')],
   '/assets/codemirror/LICENSE' => ['text/plain; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/LICENSE')]
 }.freeze
@@ -56,8 +60,12 @@ def generate_config(values)
     values_path = File.join(directory, 'values.yaml')
     output_path = File.join(directory, 'config.yaml')
     File.write(values_path, values_yaml)
-    stdout, stderr, status = Open3.capture3(RbConfig.ruby, GENERATOR, '--values', values_path, '--output', output_path)
-    raise WebError.new(422, '生成失败，请检查配置参数') unless status.success?
+    _stdout, stderr, status = Open3.capture3(RbConfig.ruby, GENERATOR, '--values', values_path, '--output', output_path)
+    unless status.success?
+      detail = stderr.to_s.lines.map(&:strip).reject(&:empty?)
+                     .map { |line| line.gsub(values_path, 'values.yaml') }.join("\n")
+      raise WebError.new(422, detail.empty? ? '生成失败，请检查配置参数' : "生成失败：\n#{detail}")
+    end
     raise WebError.new(422, '生成的配置过大') if File.size(output_path) > SubscriptionStore::MAX_CONFIG
 
     { 'config' => File.read(output_path), 'source' => values_yaml, 'message' => '生成成功' }
