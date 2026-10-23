@@ -27,6 +27,10 @@ COPY config-values.example.yaml ./config-values.example.yaml
 COPY web/vendor/codemirror/codemirror.js \
      web/vendor/codemirror/codemirror.css \
      web/vendor/codemirror/yaml.js \
+     web/vendor/codemirror/lint.js \
+     web/vendor/codemirror/lint.css \
+     web/vendor/codemirror/yaml-lint.js \
+     web/vendor/codemirror/js-yaml.min.js \
      web/vendor/codemirror/LICENSE \
      web/vendor/codemirror/README.md ./web/vendor/codemirror/
 

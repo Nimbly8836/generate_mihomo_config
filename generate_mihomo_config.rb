@@ -30,8 +30,12 @@ rescue Errno::ENOENT
   warn "File not found: #{path}"
   exit 1
 rescue Psych::SyntaxError => e
-  location = e.line ? "#{path}:#{e.line}:#{e.column}" : path
   detail = [e.problem, e.context].compact.join(' ').strip
+  if e.line && (e.line > 1 || e.column > 1)
+    location = "#{path}:#{e.line}:#{e.column}"
+  else
+    location = "#{path}（行号不可靠，通常是同级键的缩进不一致）"
+  end
   warn "YAML parse error in #{location}: #{detail}"
   exit 1
 end
