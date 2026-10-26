@@ -24,6 +24,7 @@ COPY lib/wireguard_config.rb lib/failover_config.rb lib/subscription_store.rb li
 COPY web/index.html ./web/index.html
 COPY web/favicon.svg ./web/favicon.svg
 COPY config-values.example.yaml ./config-values.example.yaml
+COPY web/meta-json-schema.json ./web/meta-json-schema.json
 COPY web/vendor/codemirror/codemirror.js \
      web/vendor/codemirror/codemirror.css \
      web/vendor/codemirror/yaml.js \
@@ -33,6 +34,11 @@ COPY web/vendor/codemirror/codemirror.js \
      web/vendor/codemirror/js-yaml.min.js \
      web/vendor/codemirror/LICENSE \
      web/vendor/codemirror/README.md ./web/vendor/codemirror/
+COPY web/vendor/monaco/editor.js \
+     web/vendor/monaco/editor.css \
+     web/vendor/monaco/LICENSES.txt ./web/vendor/monaco/
+COPY web/vendor/monaco/assets/editor.worker-pDU4FRj1.js \
+     web/vendor/monaco/assets/yaml.worker-UCHN0G_x.js ./web/vendor/monaco/assets/
 
 USER 10001:10001
 EXPOSE 4567

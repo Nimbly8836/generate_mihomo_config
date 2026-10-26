@@ -1,0 +1,33 @@
+{
+  "name": "gen-mihomo-config",
+  "version": "1.0.0",
+  "description": "用一个 `values.yaml` 渲染 `config-template.yaml.erb`，生成最终的 Mihomo 配置。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "build:web": "vite build --config vite.monaco.config.cjs",
+    "test:web": "node --test test/web_form_test.cjs",
+    "test": "npm run test:web"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nimbly8836/generate_mihomo_config.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Nimbly8836/generate_mihomo_config/issues"
+  },
+  "homepage": "https://github.com/Nimbly8836/generate_mihomo_config#readme",
+  "devDependencies": {
+    "monaco-editor": "0.52.2",
+    "monaco-yaml": "5.2.0",
+    "vite": "6.1.0"
+  }
+}

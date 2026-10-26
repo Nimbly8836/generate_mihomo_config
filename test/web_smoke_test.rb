@@ -73,9 +73,27 @@ class WebSmokeTest < Minitest::Test
     end
   end
 
+  def test_monaco_editor_assets_are_available_locally
+    assets = {
+      '/assets/monaco/editor.js' => ['text/javascript', 'web/vendor/monaco/editor.js'],
+      '/assets/monaco/editor.css' => ['text/css', 'web/vendor/monaco/editor.css'],
+      '/assets/monaco/assets/editor.worker-pDU4FRj1.js' => ['text/javascript', 'web/vendor/monaco/assets/editor.worker-pDU4FRj1.js'],
+      '/assets/monaco/assets/yaml.worker-UCHN0G_x.js' => ['text/javascript', 'web/vendor/monaco/assets/yaml.worker-UCHN0G_x.js'],
+      '/assets/monaco/meta-json-schema.json' => ['application/json', 'web/meta-json-schema.json']
+    }
+    assets.each do |path, (content_type, relative_file)|
+      response = request(path)
+      assert_equal '200', response.code, path
+      assert response.fetch('content-type').start_with?(content_type), path
+      assert_equal 'nosniff', response.fetch('x-content-type-options'), path
+      expected = File.binread(File.expand_path("../#{relative_file}", __dir__))
+      assert_equal expected, response.body.b, path
+    end
+  end
+
   def test_unlisted_file_paths_are_not_served
     ['/config-values.yaml', '/examples/config-values-phone-wg.yaml',
-     '/assets/codemirror/../../config-values.yaml', '/examples/../config-values.yaml'].each do |path|
+     '/assets/codemirror/../../config-values.yaml', '/assets/monaco/../meta-json-schema.json', '/examples/../config-values.yaml'].each do |path|
       assert_equal '404', request(path).code, path
     end
   end

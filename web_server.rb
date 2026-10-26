@@ -30,7 +30,13 @@ PUBLIC_FILES = {
   '/assets/codemirror/yaml-lint.js' => ['text/javascript; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/yaml-lint.js')],
   '/assets/codemirror/js-yaml.min.js' => ['text/javascript; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/js-yaml.min.js')],
   '/assets/codemirror/codemirror.css' => ['text/css; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/codemirror.css')],
-  '/assets/codemirror/LICENSE' => ['text/plain; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/LICENSE')]
+  '/assets/codemirror/LICENSE' => ['text/plain; charset=utf-8', File.join(WEB_ROOT, 'vendor/codemirror/LICENSE')],
+  '/assets/monaco/editor.js' => ['text/javascript; charset=utf-8', File.join(WEB_ROOT, 'vendor/monaco/editor.js')],
+  '/assets/monaco/editor.css' => ['text/css; charset=utf-8', File.join(WEB_ROOT, 'vendor/monaco/editor.css')],
+  '/assets/monaco/assets/editor.worker-pDU4FRj1.js' => ['text/javascript; charset=utf-8', File.join(WEB_ROOT, 'vendor/monaco/assets/editor.worker-pDU4FRj1.js')],
+  '/assets/monaco/assets/yaml.worker-UCHN0G_x.js' => ['text/javascript; charset=utf-8', File.join(WEB_ROOT, 'vendor/monaco/assets/yaml.worker-UCHN0G_x.js')],
+  '/assets/monaco/meta-json-schema.json' => ['application/json; charset=utf-8', File.join(WEB_ROOT, 'meta-json-schema.json')],
+  '/assets/monaco/LICENSES.txt' => ['text/plain; charset=utf-8', File.join(WEB_ROOT, 'vendor/monaco/LICENSES.txt')]
 }.freeze
 
 def http_response(status, type, body, extra_headers = {})

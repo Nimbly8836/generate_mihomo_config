@@ -4,8 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Mihomo 配置生成器</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="stylesheet" href="/assets/codemirror/codemirror.css">
-  <link rel="stylesheet" href="/assets/codemirror/lint.css">
+  <link rel="stylesheet" href="/assets/monaco/index.css">
   <style>
     :root {
       color-scheme: dark;
@@ -73,7 +72,8 @@
     input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-color: var(--ring); }
     input:user-invalid, textarea:user-invalid, select:user-invalid { border-color: var(--destructive); }
     textarea { display: block; min-height: 110px; resize: vertical; font: 12px/1.75 ui-monospace, SFMono-Regular, Consolas, monospace; }
-    #file-values { min-height: 520px; tab-size: 2; }
+    #file-values { display: none; min-height: 520px; tab-size: 2; }
+    #monaco-editor { height: 520px; border: 1px solid var(--border); border-radius: 6px; background: var(--input); overflow: hidden; }
     .checkbox { flex-direction: row; align-items: center; gap: 10px; margin: 0; }
     .checkbox input { width: 16px; height: 16px; min-height: 0; margin: 0; accent-color: var(--primary); }
     #ip4p-hint { margin: 8px 0 0 26px; font-size: 12px; }
@@ -107,20 +107,8 @@
     .dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
     #result-config, #reference-values { height: min(45dvh, 360px); min-height: 160px; resize: none; }
     .editor-header { justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
-    .CodeMirror { height: 520px; border: 1px solid var(--border); border-radius: 6px; background: var(--input); color: var(--foreground); font: 13px/1.75 ui-monospace, SFMono-Regular, Consolas, monospace; }
-    .CodeMirror-focused { outline: 2px solid var(--ring); outline-offset: 2px; }
-    .CodeMirror textarea { min-height: 0; padding: 0; border: 0; outline: none; }
-    .CodeMirror-gutters { background: var(--muted); border-right: 1px solid var(--border); }
-    .CodeMirror-linenumber { color: var(--muted-foreground); }
-    .CodeMirror-cursor { border-left-color: var(--foreground); }
-    .CodeMirror-selected, .CodeMirror-focused .CodeMirror-selected { background: var(--accent); }
-    .cm-s-mihomo .cm-atom, .cm-s-mihomo .cm-def { color: var(--editor-key); }
-    .cm-s-mihomo .cm-string { color: var(--editor-string); }
-    .cm-s-mihomo .cm-number { color: var(--editor-number); }
-    .cm-s-mihomo .cm-keyword, .cm-s-mihomo .cm-variable-2 { color: var(--editor-keyword); }
-    .CodeMirror-lint-tooltip { background: var(--card); border: 1px solid var(--destructive); color: var(--foreground); box-shadow: var(--shadow); }
-    .cm-s-mihomo .cm-comment { color: var(--muted-foreground); }
-    .cm-s-mihomo .cm-meta { color: var(--foreground); }
+    #monaco-editor:focus-within { outline: 2px solid var(--ring); outline-offset: 2px; }
+    .monaco-editor, .monaco-editor .margin { border-radius: 6px; }
     .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 16px; }
     #copy-message { margin-bottom: 0; }
     @media (max-width: 760px) {
@@ -144,7 +132,7 @@
       .mode-switch { display: flex; }
       .mode-switch button { flex: 1; padding: 8px 10px; }
       #subscription-dialog, #result-dialog, #reference-dialog { padding: 18px; }
-      .CodeMirror { font-size: 16px; }
+      #monaco-editor { height: 560px; }
       .dialog-actions button { flex: 1; }
     }
     @media (prefers-reduced-motion: reduce) { button { transition: none; } }
@@ -206,6 +194,8 @@
         <div class="sections">
       <section id="experimental">
         <header class="section-header"><h2>实验功能</h2></header>
+        <label class="checkbox"><input name="enable_ipv6" type="checkbox" aria-describedby="enable-ipv6-hint">启用 IPv6</label>
+        <p id="enable-ipv6-hint" class="hint">默认禁用。启用后会同时打开 Mihomo IPv6、DNS IPv6 和 TUN IPv6（inet6）；需要核心、网络和 DNS 上游都支持 IPv6。</p>
         <label class="checkbox"><input name="ip4p" type="checkbox" aria-describedby="ip4p-hint">启用 IP4P（实验功能）</label>
         <p id="ip4p-hint" class="hint">仅影响表单模式。需要支持 dialer-ip4p-convert 的 Mihomo 核心；不会自动开启 IPv6 或修改 WG 节点。YAML 模式请使用 config_overrides 配置。</p>
       </section>
@@ -245,7 +235,7 @@
       </details>
       </div>
     </fieldset>
-    <div id="file-editor" hidden><section><header class="section-header editor-header"><div><h2>values.yaml</h2><p class="hint">不会自动保存；手动发布或更新订阅时才保存源配置。刷新页面会丢失未发布的修改。</p></div><button id="open-reference" type="button">参考配置</button></header><textarea id="file-values" aria-label="完整 values.yaml 配置" spellcheck="false"></textarea><p class="hint">Tab / Shift+Tab：调整两空格缩进；Esc：返回生成按钮。</p></section></div>
+    <div id="file-editor" hidden><section><header class="section-header editor-header"><div><h2>values.yaml</h2><p class="hint">不会自动保存；手动发布或更新订阅时才保存源配置。编辑器支持 YAML 语法检查、Mihomo key 检查、补全、悬停说明和格式化。刷新页面会丢失未发布的修改。</p></div><button id="open-reference" type="button">参考配置</button></header><div id="monaco-editor" aria-label="完整 values.yaml 配置编辑器"></div><textarea id="file-values" aria-label="完整 values.yaml 配置" spellcheck="false"></textarea><p class="hint">Tab / Shift+Tab：调整两空格缩进；Shift+Alt+F：格式化；Esc：返回生成按钮。</p></section></div>
     <div class="form-actions"><p class="hint">生成后下载配置，再导入 Mihomo 使用。</p><div class="action-buttons"><button id="my-subscriptions" type="button">我的配置订阅</button><button id="generate" type="submit">生成配置</button></div><pre id="status" role="alert" hidden></pre></div>
   </form>
   <footer class="page-footer">仅生成配置 · 实际代理连接由 Mihomo 核心处理</footer>
@@ -339,13 +329,9 @@
     </fieldset>
   </template>
 
-  <script src="/assets/codemirror/js-yaml.min.js"></script>
-  <script src="/assets/codemirror/codemirror.js"></script>
-  <script src="/assets/codemirror/lint.js"></script>
-  <script src="/assets/codemirror/yaml.js"></script>
-  <script src="/assets/codemirror/yaml-lint.js"></script>
+  <script src="/assets/monaco/editor.js"></script>
   <script>
-    const form = document.querySelector('#form'), formEditor = document.querySelector('#form-editor'), fileEditor = document.querySelector('#file-editor'), fileValues = document.querySelector('#file-values'), status = document.querySelector('#status');
+    const form = document.querySelector('#form'), formEditor = document.querySelector('#form-editor'), fileEditor = document.querySelector('#file-editor'), fileValues = document.querySelector('#file-values'), monacoHost = document.querySelector('#monaco-editor'), status = document.querySelector('#status');
     const formMode = document.querySelector('#form-mode'), fileMode = document.querySelector('#file-mode'), themeToggle = document.querySelector('#theme-toggle'), generate = document.querySelector('#generate'), download = document.querySelector('#download');
     const resultDialog = document.querySelector('#result-dialog'), resultConfig = document.querySelector('#result-config'), copyConfig = document.querySelector('#copy-config'), copyMessage = document.querySelector('#copy-message');
     const referenceButton = document.querySelector('#open-reference'), referenceDialog = document.querySelector('#reference-dialog'), referenceValues = document.querySelector('#reference-values'), referenceCopy = document.querySelector('#copy-reference'), referenceMessage = document.querySelector('#reference-message');
@@ -376,16 +362,21 @@
     setTheme(localStorage.getItem('mihomo-theme') || 'dark');
     fileValues.value = 'proxy_providers: []\nlocal_proxies: []\nwireguard: []\ncustom_rule_providers: []\nlocal_rules: []\nproxy_rules: []\ndirect_rules: []\ngroup_rules: {}\n';
     function refreshYamlEditor() {
-      if (!yamlEditor && typeof CodeMirror !== 'undefined') {
+      if (!yamlEditor && typeof MihomoMonacoEditor !== 'undefined') {
+        yamlEditor = MihomoMonacoEditor.create(monacoHost, fileValues.value, value => { fileValues.value = value; });
+      } else if (!yamlEditor && typeof CodeMirror !== 'undefined') {
+        // Test/fallback path for environments that do not load the Monaco bundle.
         yamlEditor = CodeMirror.fromTextArea(fileValues, {
           mode: 'yaml', theme: 'mihomo', lineNumbers: true, lineWrapping: false, lint: true,
+          gutters: ['CodeMirror-lint-markers'],
           indentUnit: 2, tabSize: 2, indentWithTabs: false,
           screenReaderLabel: 'values.yaml 配置编辑器',
           extraKeys: { Tab: 'indentMore', 'Shift-Tab': 'indentLess', Esc: () => generate.focus() }
         });
         yamlEditor.on('change', () => yamlEditor.save());
       }
-      yamlEditor?.refresh();
+      yamlEditor?.layout?.();
+      yamlEditor?.refresh?.();
     }
     function setMode(next) {
       mode = next;
@@ -594,7 +585,14 @@
         values.failover = {primary, backup, url: requireHttpUrl(data.get('failover_url') || 'https://www.google.com/generate_204', '保底探测地址'),
           expected_status: integer(data.get('failover_status') || '204', '期望状态码', 100, 599), interval: integer(data.get('failover_interval') || '30', '保底检查间隔', 1, 3600)};
       }
-      if (data.get('ip4p') === 'on') values.config_overrides = {experimental: {'dialer-ip4p-convert': true}};
+      const overrides = {};
+      if (data.get('enable_ipv6') === 'on') {
+        overrides.ipv6 = true;
+        overrides.dns = {ipv6: true};
+        overrides.tun = {inet6: true};
+      }
+      if (data.get('ip4p') === 'on') overrides.experimental = {'dialer-ip4p-convert': true};
+      if (Object.keys(overrides).length) values.config_overrides = overrides;
       if (data.get('web_secret').trim()) values.web_secret = data.get('web_secret').trim();
       lines(data.get('providers')).forEach((line, index) => {
         const fields = line.split('|').map(value => value.trim());
@@ -620,7 +618,7 @@
       clearPublished(); syncSubscriptionButtons();
       generate.textContent = '生成中…'; status.hidden = true; status.textContent = '';
       try {
-        const values = mode === 'file' ? fileValues.value : valuesFromForm();
+        const values = mode === 'file' ? (yamlEditor?.getValue?.() ?? fileValues.value) : valuesFromForm();
         const response = await fetch('/api/generate', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({values})});
         const result = await response.json();
         if (generation !== snapshotVersion) return;

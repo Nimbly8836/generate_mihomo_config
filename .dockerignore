@@ -14,6 +14,7 @@
 !web/index.html
 !web/favicon.svg
 !config-values.example.yaml
+!web/meta-json-schema.json
 !web/vendor/
 !web/vendor/codemirror/
 !web/vendor/codemirror/codemirror.js
@@ -25,3 +26,10 @@
 !web/vendor/codemirror/js-yaml.min.js
 !web/vendor/codemirror/LICENSE
 !web/vendor/codemirror/README.md
+!web/vendor/monaco/
+!web/vendor/monaco/editor.js
+!web/vendor/monaco/editor.css
+!web/vendor/monaco/LICENSES.txt
+!web/vendor/monaco/assets/
+!web/vendor/monaco/assets/editor.worker-pDU4FRj1.js
+!web/vendor/monaco/assets/yaml.worker-UCHN0G_x.js

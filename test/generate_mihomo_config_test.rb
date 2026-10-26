@@ -996,6 +996,15 @@ class GenerateMihomoConfigTest < Minitest::Test
     end
   end
 
+  def test_default_tun_uses_mips_stack
+    with_generated_config(empty_provider_values([])) do |config, _output_path|
+      assert_equal 'mips', config.fetch('tun').fetch('stack')
+      assert_equal false, config.fetch('ipv6')
+      assert_equal false, config.fetch('dns').fetch('ipv6')
+      assert_equal false, config.fetch('tun').fetch('inet6')
+    end
+  end
+
   def test_final_config_overrides_merge_ipv6_and_experimental_settings
     values = provider_present_values.merge('config_overrides' => {
                                              'ipv6' => true,

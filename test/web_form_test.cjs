@@ -115,10 +115,10 @@ test("YAML editor is initialized once, preserves text and syncs edits to generat
   assert.equal(refreshed, 2);
 });
 
-test("YAML editor scripts and styling are served locally without a CDN", () => {
-  assert.match(html, /src="\/assets\/codemirror\/codemirror.js"/);
-  assert.match(html, /src="\/assets\/codemirror\/yaml.js"/);
-  assert.match(html, /href="\/assets\/codemirror\/codemirror.css"/);
+test("Monaco YAML editor assets are served locally without a CDN", () => {
+  assert.match(html, /src="\/assets\/monaco\/editor.js"/);
+  assert.match(html, /href="\/assets\/monaco\/index.css"/);
+  assert.match(html, /id="monaco-editor"/);
   assert.doesNotMatch(html, /<(?:script|link)[^>]*(?:src|href)="https?:/);
 });
 
@@ -436,6 +436,7 @@ function page(ip4p, extraFields = {}) {
     direct_rules: "",
     group_rules: "",
     ip4p: ip4p ? "on" : null,
+    enable_ipv6: null,
     ...extraFields,
   };
   const requests = [];
@@ -852,6 +853,22 @@ test("IP4P is an opt-in checkbox with a core compatibility notice", () => {
   assert.match(html, /需要支持 dialer-ip4p-convert/);
 });
 
+test("IPv6 is an opt-in advanced setting and enables all relevant Mihomo layers", async () => {
+  const { element, requests } = page(false, { enable_ipv6: "on" });
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.deepEqual(requests[0].values.config_overrides, {
+    ipv6: true,
+    dns: { ipv6: true },
+    tun: { inet6: true },
+  });
+});
+
+test("unchecked IPv6 leaves the template defaults untouched", async () => {
+  const { element, requests } = page(false);
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.equal(requests[0].values.config_overrides, undefined);
+});
+
 test("checked IP4P is submitted as a final configuration override", async () => {
   const { element, requests } = page(true);
   await element("#form").onsubmit({ preventDefault() {} });
@@ -860,6 +877,17 @@ test("checked IP4P is submitted as a final configuration override", async () => 
   });
   assert.equal(requests[0].values.ipv6, undefined);
   assert.deepEqual(requests[0].values.local_proxies, []);
+});
+
+test("IP4P and IPv6 overrides are merged in the form", async () => {
+  const { element, requests } = page(true, { enable_ipv6: "on" });
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.deepEqual(requests[0].values.config_overrides, {
+    ipv6: true,
+    dns: { ipv6: true },
+    tun: { inet6: true },
+    experimental: { "dialer-ip4p-convert": true },
+  });
 });
 
 test("unchecked IP4P leaves template defaults untouched", async () => {

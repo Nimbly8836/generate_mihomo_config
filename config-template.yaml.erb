@@ -77,8 +77,8 @@ sniffer:
 tun:
   # 是否启用 TUN
   enable: true
-  # TUN 协议栈，gvisor 兼容性较好
-  stack: gvisor
+  # TUN 协议栈；mihomo 新版推荐 mips
+  stack: mips
   dns-hijack:
     # 劫持所有 UDP 53 请求
     - "any:53"

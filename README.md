@@ -38,13 +38,13 @@ HOST=127.0.0.1 PORT=4567 ruby web_server.rb
 
 前端文件位于 `web/index.html`，支持表单/YAML 编辑、生成预览、下载结果及手动发布配置订阅；不会自动保存编辑内容。
 表单模式与 YAML 模式相互独立，不自动转换；表单字段（包括 WG 密钥）不保存到 localStorage。
-默认只展开基础设置和节点订阅；IP4P 实验功能、WireGuard、自定义规则和外部规则集统一放在“高级配置”中，按需展开。折叠不会清空或停用已经填写的参数。
+默认只展开基础设置和节点订阅；IPv6、IP4P 实验功能、WireGuard、自定义规则和外部规则集统一放在“高级配置”中，按需展开。折叠不会清空或停用已经填写的参数。
 生成成功后会自动弹出只读配置预览，可复制内容或点击“下载配置”保存为 `config.yaml`；页面外不再提供重复的下载按钮。
 若浏览器限制导致自动复制失败，会选中文本并提示手动复制。预览不会额外保存生成内容到浏览器；请妥善保管其中的订阅和密钥。
 
-表单的“高级配置 → 实验功能”中提供 **启用 IP4P（实验功能）** 开关，默认不勾选。
-勾选后生成 `experimental.dialer-ip4p-convert: true`，不自动开启 IPv6 或修改 WG 节点；
-需要运行配置的 Mihomo 核心支持这个字段。开关只影响表单模式，YAML 模式仍以编辑内容为准。
+表单的“高级配置 → 实验功能”中提供 **启用 IPv6** 和 **启用 IP4P（实验功能）** 开关，默认都不勾选。
+启用 IPv6 会同时生成 `ipv6: true`、`dns.ipv6: true` 和 `tun.inet6: true`；需要核心、网络和 DNS 上游都支持 IPv6。
+启用 IP4P 后生成 `experimental.dialer-ip4p-convert: true`，不自动开启 IPv6 或修改 WG 节点；需要运行配置的 Mihomo 核心支持这个字段。两个开关只影响表单模式，YAML 模式仍以编辑内容为准。
 
 ### 把订阅中的节点加入分组
 
@@ -77,8 +77,8 @@ HOST=127.0.0.1 PORT=4567 ruby web_server.rb
 
 ### YAML 编辑器与参考配置
 
-“编辑配置文件”模式提供 YAML 语法高亮和行号，长行横向滚动，不与真实换行混淆。
-`Tab` / `Shift+Tab` 调整两空格缩进，`Esc` 返回生成按钮。高亮是编辑辅助，配置仍需在生成时校验。
+“编辑配置文件”模式使用本地打包的 Monaco Editor + monaco-yaml，提供 YAML 语法错误标记、未知 Mihomo key 检查、枚举值检查、自动补全、悬停说明、折叠、格式化和行号；长行横向滚动，不与真实换行混淆。
+`Tab` / `Shift+Tab` 调整缩进，`Shift+Alt+F` 格式化，`Esc` 返回生成按钮。编辑器使用项目 values Schema 校验 values 顶层字段，并使用社区维护的 Clash.Meta/Mihomo Schema 校验 `config_overrides`。配置仍需在生成时校验。
 切换输入模式不会清空当前页面的编辑内容；生成和编辑都不会自动保存输入。需要保留时，请主动发布或更新配置订阅。
 
 点击标题旁的 **参考配置**，可查看、复制仓库公开的 [`config-values.example.yaml`](config-values.example.yaml)。
@@ -87,8 +87,8 @@ WG 等可选示例在注释中，启用时应替换相应空块，而不是保�
 它是填写参考，不是可直接联网的默认配置，请替换 URL、密码和密钥占位符。
 打开或复制参考配置不会覆盖编辑区，也不会额外写入 localStorage。
 
-编辑器使用本地打包的 CodeMirror 5.65.21（MIT，见 [来源和更新说明](web/vendor/codemirror/README.md)），无 CDN 请求或 Node 运行依赖。
-服务只按固定白名单提供编辑器资源和 `/examples/values.yaml`；该路径对应公开示例，不读取私人 values。
+编辑器使用本地打包的 Monaco Editor 0.52.2、monaco-yaml 5.2.0 和 `meta-json-schema` 1.19.32（MIT，见 `web/vendor/monaco/LICENSES.txt` 和 README），运行时不请求 CDN；Node 只用于构建前端资源，不进入运行时镜像。
+服务只按固定白名单提供编辑器资源、Schema 和 `/examples/values.yaml`；该路径对应公开示例，不读取私人 values。
 不要将个人订阅或密钥写入这个公开示例文件。
 
 ### 在表单中添加 WG 节点

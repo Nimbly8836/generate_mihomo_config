@@ -1,0 +1,11 @@
+Monaco Editor: MIT License
+Copyright (c) Microsoft Corporation.
+Source: https://github.com/microsoft/monaco-editor
+
+monaco-yaml: MIT License
+Copyright (c) Kevin Decker and contributors.
+Source: https://github.com/remcohaszing/monaco-yaml
+
+meta-json-schema: MIT License
+Copyright (c) dongchengjie and contributors.
+Source: https://github.com/dongchengjie/meta-json-schema
