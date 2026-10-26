@@ -800,7 +800,8 @@ rules:
   - RULE-SET,hbo_domain,<%= route.call('media', 'hbo') %>
   - RULE-SET,twitch_domain,<%= route.call('media', 'twitch') %>
   - RULE-SET,spotify_domain,<%= route.call('media', 'spotify') %>
-  - RULE-SET,bilibili_domain,media
+  # 哔哩哔哩国内站点归入 china，避免国内媒体被 media 默认代理；国际站和巴哈仍走 media。
+  - RULE-SET,bilibili_domain,china
   - RULE-SET,biliintl_domain,media
   - RULE-SET,bahamut_domain,media
 

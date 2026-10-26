@@ -919,6 +919,17 @@ class GenerateMihomoConfigTest < Minitest::Test
     end
   end
 
+  def test_domestic_media_uses_china_while_international_media_uses_media
+    with_generated_config(empty_provider_values([])) do |config, _output_path|
+      rules = config.fetch('rules')
+      assert_includes rules, 'RULE-SET,bilibili_domain,china'
+      refute_includes rules, 'RULE-SET,bilibili_domain,media'
+      assert_includes rules, 'RULE-SET,biliintl_domain,media'
+      assert_includes rules, 'RULE-SET,bahamut_domain,media'
+      assert_operator rules.index('RULE-SET,bilibili_domain,china'), :<, rules.index('RULE-SET,cn,china')
+    end
+  end
+
   def test_builtin_rule_providers_restore_legacy_coverage
     with_generated_config(empty_provider_values([])) do |config, _output_path|
       providers = config.fetch('rule-providers')
