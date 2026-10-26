@@ -145,6 +145,43 @@ test("Monaco editor is created once, syncs edits, handles Esc and follows the pa
   assert.deepEqual(themes, [true]);
 });
 
+test("editor toolbar folds/unfolds/formats and problems list renders safe text and jumps to the line", () => {
+  const { context, element } = page(false);
+  const calls = [];
+  let onProblems;
+  context.MihomoMonacoEditor = {
+    create(_host, _value, _change, _escape, problems) { onProblems = problems; return this; },
+    layout() {},
+    setTheme() {},
+    foldAll() { calls.push("foldAll"); },
+    unfoldAll() { calls.push("unfoldAll"); },
+    foldToTopLevel() { calls.push("top"); },
+    format() { calls.push("format"); },
+    revealProblem(line, column) { calls.push(`reveal:${line}:${column}`); },
+  };
+  element("#file-mode").onclick();
+  for (const id of ["#fold-all", "#unfold-all", "#fold-top", "#format-yaml"]) element(id).onclick();
+  assert.deepEqual(calls, ["foldAll", "unfoldAll", "top", "format"]);
+
+  onProblems([
+    { line: 6, column: 6, severity: "error", message: "<img src=x onerror=alert(1)> bad indentation" },
+    { line: 2, column: 1, severity: "warning", message: "Property local_rulez is not allowed." },
+  ]);
+  assert.equal(element("#yaml-problems").hidden, false);
+  assert.match(element("#yaml-problem-count").textContent, /1 个错误.*1 个警告/);
+  const rows = element("#yaml-problems").children;
+  assert.equal(rows.length, 2);
+  // Worker messages are untrusted text: appended as text nodes, never innerHTML.
+  assert.equal(rows[0].children[2].textContent, "<img src=x onerror=alert(1)> bad indentation");
+  assert.equal(rows[0].innerHTML, undefined);
+  rows[0].onclick();
+  assert.equal(calls.at(-1), "reveal:6:6");
+
+  onProblems([]);
+  assert.equal(element("#yaml-problems").hidden, true);
+  assert.match(element("#yaml-problem-count").textContent, /未发现问题/);
+});
+
 test("every /assets path referenced by the page exists in the vendored build", () => {
   const refs = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]);
   assert.ok(refs.length >= 2, "expected editor script and stylesheet references");

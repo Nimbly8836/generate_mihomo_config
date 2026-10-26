@@ -77,8 +77,14 @@ HOST=127.0.0.1 PORT=4567 ruby web_server.rb
 
 ### YAML 编辑器与参考配置
 
-“编辑配置文件”模式使用本地打包的 Monaco Editor + monaco-yaml，提供 YAML 语法错误标记、未知 Mihomo key 检查、枚举值检查、自动补全、悬停说明、折叠、格式化和行号；长行横向滚动，不与真实换行混淆。
-`Tab` / `Shift+Tab` 调整缩进，`Shift+Alt+F` 格式化，`Esc` 返回生成按钮。编辑器使用项目 values Schema 校验 values 顶层字段，并使用社区维护的 Clash.Meta/Mihomo Schema 校验 `config_overrides`。配置仍需在生成时校验。
+“编辑配置文件”模式使用本地打包的 Monaco Editor + monaco-yaml：
+
+- **语法高亮**：key、字符串、数字、布尔/null、注释分别着色，配色跟随页面明/暗主题。
+- **提示**：悬停 key 显示 Schema 说明和可选值；`Ctrl+Space` 触发补全。编辑器下方列出全部错误/警告，点击即可跳到对应行。
+- **折叠**：工具栏提供“全部收起 / 全部展开 / 只看顶层”，行号旁的箭头可折叠单个区块。
+- **其他**：格式化（按钮或 `Shift+Alt+F`）、`Tab` / `Shift+Tab` 调整缩进、`Esc` 返回生成按钮；长行横向滚动，不自动换行。
+
+校验范围：values 顶层字段使用项目 Schema（未知 key 会警告）；`config_overrides` 使用社区维护的 Clash.Meta/Mihomo Schema，只检查类型和枚举值（如 `tun.stack`），**不会**标出其中的未知 key。配置仍以生成时的校验为准。
 切换输入模式不会清空当前页面的编辑内容；生成和编辑都不会自动保存输入。需要保留时，请主动发布或更新配置订阅。
 
 点击标题旁的 **参考配置**，可查看、复制仓库公开的 [`config-values.example.yaml`](config-values.example.yaml)。

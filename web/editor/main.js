@@ -1,4 +1,8 @@
-import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
+// edcore.main = editor API + all editor contributions (hover, folding, suggest, find, format...).
+// editor.api alone has none of them, so hints/folding silently do nothing.
+import * as monaco from 'monaco-editor/esm/vs/editor/edcore.main';
+// Monarch tokenizer for YAML; without it keys, values and comments share one color.
+import 'monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution';
 import { configureMonacoYaml } from 'monaco-yaml';
 import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import YamlWorker from 'monaco-yaml/yaml.worker?worker';
@@ -60,12 +64,74 @@ configureMonacoYaml(monaco, {
   ]
 });
 
+// Colors follow the page's --editor-* palette so the editor matches both page themes.
+const yamlRules = palette => [
+  { token: 'type', foreground: palette.key },            // mapping keys
+  { token: 'string', foreground: palette.string },
+  { token: 'number', foreground: palette.number },
+  { token: 'keyword', foreground: palette.keyword },     // true / false / null
+  { token: 'comment', foreground: palette.comment, fontStyle: 'italic' },
+  { token: 'namespace', foreground: palette.keyword },   // &anchor / *alias
+  { token: 'tag', foreground: palette.keyword },
+  { token: 'operators', foreground: palette.muted },
+  { token: 'delimiter', foreground: palette.muted }
+];
+monaco.editor.defineTheme('mihomo-dark', {
+  base: 'vs-dark',
+  inherit: true,
+  rules: yamlRules({ key: '93c5fd', string: '86efac', number: 'fdba74', keyword: 'd8b4fe', comment: '71717a', muted: 'a1a1aa' }),
+  colors: {
+    'editor.background': '#18181b',
+    'editorGutter.background': '#18181b',
+    'editorLineNumber.foreground': '#52525b',
+    'editorLineNumber.activeForeground': '#d4d4d8',
+    'editor.lineHighlightBackground': '#ffffff08',
+    'editor.lineHighlightBorder': '#00000000',
+    'editorIndentGuide.background1': '#27272a',
+    'editorIndentGuide.activeBackground1': '#3f3f46',
+    'scrollbarSlider.background': '#ffffff1f',
+    'scrollbarSlider.hoverBackground': '#ffffff33',
+    'scrollbarSlider.activeBackground': '#ffffff47',
+    'editorOverviewRuler.border': '#00000000'
+  }
+});
+monaco.editor.defineTheme('mihomo-light', {
+  base: 'vs',
+  inherit: true,
+  rules: yamlRules({ key: '1d4ed8', string: '15803d', number: '9a3412', keyword: '7e22ce', comment: '71717a', muted: '52525b' }),
+  colors: {
+    'editor.background': '#ffffff',
+    'editorGutter.background': '#ffffff',
+    'editorLineNumber.foreground': '#a1a1aa',
+    'editorLineNumber.activeForeground': '#18181b',
+    'editor.lineHighlightBackground': '#18181b08',
+    'editor.lineHighlightBorder': '#00000000',
+    'editorIndentGuide.background1': '#ececf0',
+    'editorIndentGuide.activeBackground1': '#d4d4d8',
+    'scrollbarSlider.background': '#18181b1f',
+    'scrollbarSlider.hoverBackground': '#18181b33',
+    'scrollbarSlider.activeBackground': '#18181b47',
+    'editorOverviewRuler.border': '#00000000'
+  }
+});
+
 let editor = null;
 let model = null;
-let theme = document.documentElement.classList.contains('light') ? 'vs' : 'vs-dark';
+let theme = document.documentElement.classList.contains('light') ? 'mihomo-light' : 'mihomo-dark';
+
+// Diagnostics for the values model, sorted by position; severity 8 = error, 4 = warning.
+const problems = () => (model ? monaco.editor.getModelMarkers({ resource: model.uri }) : [])
+  .filter(marker => marker.severity >= monaco.MarkerSeverity.Warning)
+  .sort((a, b) => a.startLineNumber - b.startLineNumber || a.startColumn - b.startColumn)
+  .map(marker => ({
+    line: marker.startLineNumber,
+    column: marker.startColumn,
+    severity: marker.severity === monaco.MarkerSeverity.Error ? 'error' : 'warning',
+    message: marker.message
+  }));
 
 window.MihomoMonacoEditor = {
-  create(host, value, onChange, onEscape) {
+  create(host, value, onChange, onEscape, onProblems) {
     if (!model) {
       model = monaco.editor.createModel(value || '', 'yaml', monaco.Uri.parse(VALUES_URI));
       model.onDidChangeContent(() => onChange?.(model.getValue()));
@@ -84,12 +150,34 @@ window.MihomoMonacoEditor = {
         insertSpaces: true,
         detectIndentation: false,
         folding: true,
+        foldingStrategy: 'indentation',
+        showFoldingControls: 'always',
         renderWhitespace: 'selection',
         scrollBeyondLastLine: false,
-        smoothScrolling: false,
+        smoothScrolling: true,
         fontSize: 13,
+        lineHeight: 20,
         fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+        padding: { top: 8, bottom: 8 },
+        // Hover / suggest widgets would be clipped by the host's overflow:hidden otherwise.
+        fixedOverflowWidgets: true,
+        hover: { enabled: true, delay: 300 },
+        quickSuggestions: { other: true, comments: false, strings: true },
+        suggestOnTriggerCharacters: true,
+        // Slim, overlay-style scrollbars instead of the default 14px tracks.
+        scrollbar: {
+          verticalScrollbarSize: 8,
+          horizontalScrollbarSize: 8,
+          useShadows: false,
+          alwaysConsumeMouseWheel: false
+        },
+        overviewRulerBorder: false,
+        hideCursorInOverviewRuler: true,
+        overviewRulerLanes: 2,
         theme
+      });
+      monaco.editor.onDidChangeMarkers(uris => {
+        if (uris.some(uri => uri.toString() === model.uri.toString())) onProblems?.(problems());
       });
       // Esc leaves the editor unless a Monaco widget (suggest/find/hints) should consume it.
       editor.addCommand(monaco.KeyCode.Escape, () => onEscape?.(),
@@ -111,7 +199,27 @@ window.MihomoMonacoEditor = {
     editor?.layout();
   },
   setTheme(light) {
-    theme = light ? 'vs' : 'vs-dark';
+    theme = light ? 'mihomo-light' : 'mihomo-dark';
     monaco.editor.setTheme(theme);
-  }
+  },
+  foldAll() {
+    editor?.getAction('editor.foldAll')?.run();
+  },
+  unfoldAll() {
+    editor?.getAction('editor.unfoldAll')?.run();
+  },
+  // Fold everything below the top-level keys, leaving the section list visible.
+  foldToTopLevel() {
+    editor?.getAction('editor.unfoldAll')?.run().then(() => editor.getAction('editor.foldLevel1')?.run());
+  },
+  format() {
+    editor?.getAction('editor.action.formatDocument')?.run();
+  },
+  revealProblem(line, column) {
+    if (!editor) return;
+    editor.revealLineInCenter(line);
+    editor.setPosition({ lineNumber: line, column });
+    editor.focus();
+  },
+  problems
 };

@@ -109,7 +109,25 @@
     #result-config, #reference-values { height: min(45dvh, 360px); min-height: 160px; resize: none; }
     .editor-header { justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
     #monaco-editor:focus-within { outline: 2px solid var(--ring); outline-offset: 2px; }
-    .monaco-editor, .monaco-editor .margin { border-radius: 6px; }
+    /* Rounded, slim scrollbar thumbs that sit inside the track. */
+    .monaco-scrollable-element > .scrollbar > .slider { border-radius: 4px; }
+    .monaco-scrollable-element > .scrollbar.vertical > .slider { left: 2px !important; width: 4px !important; transition: width .12s, left .12s; }
+    .monaco-scrollable-element > .scrollbar.vertical:hover > .slider, .monaco-scrollable-element > .scrollbar.vertical > .slider.active { left: 1px !important; width: 6px !important; }
+    .monaco-scrollable-element > .scrollbar.horizontal > .slider { top: 2px !important; height: 4px !important; transition: height .12s, top .12s; }
+    .monaco-scrollable-element > .scrollbar.horizontal:hover > .slider, .monaco-scrollable-element > .scrollbar.horizontal > .slider.active { top: 1px !important; height: 6px !important; }
+    .editor-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+    .editor-toolbar button { min-height: 30px; padding: 4px 10px; font-size: 12px; }
+    .editor-toolbar .spacer { flex: 1; }
+    #yaml-problem-count { font-size: 12px; color: var(--muted-foreground); }
+    #yaml-problem-count.has-error { color: var(--destructive); }
+    #yaml-problems { list-style: none; margin: 8px 0 0; padding: 0; max-height: 150px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    #yaml-problems li { display: flex; gap: 10px; padding: 5px 10px; cursor: pointer; border-top: 1px solid var(--border); }
+    #yaml-problems li:first-child { border-top: 0; }
+    #yaml-problems li:hover, #yaml-problems li:focus-visible { background: var(--muted); outline: none; }
+    #yaml-problems .badge { flex-shrink: 0; width: 1.2em; text-align: center; font-weight: 700; }
+    #yaml-problems .error .badge { color: var(--destructive); }
+    #yaml-problems .warning .badge { color: #d97706; }
+    #yaml-problems .where { flex-shrink: 0; color: var(--muted-foreground); }
     .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; margin-top: 16px; }
     #copy-message { margin-bottom: 0; }
     @media (max-width: 760px) {
@@ -236,7 +254,7 @@
       </details>
       </div>
     </fieldset>
-    <div id="file-editor" hidden><section><header class="section-header editor-header"><div><h2>values.yaml</h2><p class="hint">不会自动保存；手动发布或更新订阅时才保存源配置。编辑器支持 YAML 语法检查、Mihomo key 检查、补全、悬停说明和格式化。刷新页面会丢失未发布的修改。</p></div><button id="open-reference" type="button">参考配置</button></header><div id="monaco-editor" aria-label="完整 values.yaml 配置编辑器"></div><textarea id="file-values" aria-label="完整 values.yaml 配置" spellcheck="false"></textarea><p class="hint">Tab / Shift+Tab：调整两空格缩进；Shift+Alt+F：格式化；Esc：返回生成按钮。</p></section></div>
+    <div id="file-editor" hidden><section><header class="section-header editor-header"><div><h2>values.yaml</h2><p class="hint">不会自动保存；手动发布或更新订阅时才保存源配置。编辑器支持 YAML 语法检查、Mihomo key 检查、补全、悬停说明和格式化。刷新页面会丢失未发布的修改。</p></div><button id="open-reference" type="button">参考配置</button></header><div class="editor-toolbar" role="toolbar" aria-label="编辑器操作"><button type="button" id="fold-all" title="折叠全部（Cmd/Ctrl+K Cmd/Ctrl+0）">全部收起</button><button type="button" id="unfold-all" title="展开全部（Cmd/Ctrl+K Cmd/Ctrl+J）">全部展开</button><button type="button" id="fold-top" title="只显示顶层配置项">只看顶层</button><button type="button" id="format-yaml" title="格式化（Shift+Alt+F）">格式化</button><span class="spacer"></span><span id="yaml-problem-count" role="status" aria-live="polite"></span></div><div id="monaco-editor" aria-label="完整 values.yaml 配置编辑器"></div><ul id="yaml-problems" aria-label="YAML 问题列表" hidden></ul><textarea id="file-values" aria-label="完整 values.yaml 配置" spellcheck="false"></textarea><p class="hint">悬停 key 查看说明；Ctrl+Space：补全提示；行号旁箭头：折叠单个区块；Tab / Shift+Tab：调整缩进；Esc：返回生成按钮。点击下方问题可跳转到对应行。</p></section></div>
     <div class="form-actions"><p class="hint">生成后下载配置，再导入 Mihomo 使用。</p><div class="action-buttons"><button id="my-subscriptions" type="button">我的配置订阅</button><button id="generate" type="submit">生成配置</button></div><pre id="status" role="alert" hidden></pre></div>
   </form>
   <footer class="page-footer">仅生成配置 · 实际代理连接由 Mihomo 核心处理</footer>
@@ -364,7 +382,7 @@
     fileValues.value = 'proxy_providers: []\nlocal_proxies: []\nwireguard: []\ncustom_rule_providers: []\nlocal_rules: []\nproxy_rules: []\ndirect_rules: []\ngroup_rules: {}\n';
     function refreshYamlEditor() {
       if (!yamlEditor && typeof MihomoMonacoEditor !== 'undefined') {
-        yamlEditor = MihomoMonacoEditor.create(monacoHost, fileValues.value, value => { fileValues.value = value; }, () => generate.focus());
+        yamlEditor = MihomoMonacoEditor.create(monacoHost, fileValues.value, value => { fileValues.value = value; }, () => generate.focus(), renderYamlProblems);
       } else if (!yamlEditor && typeof CodeMirror !== 'undefined') {
         // Test/fallback path for environments that do not load the Monaco bundle.
         yamlEditor = CodeMirror.fromTextArea(fileValues, {
@@ -379,6 +397,30 @@
       yamlEditor?.layout?.();
       yamlEditor?.refresh?.();
     }
+    // Problems panel under the editor; messages come from the YAML worker and are rendered as text only.
+    const yamlProblems = document.querySelector('#yaml-problems'), yamlProblemCount = document.querySelector('#yaml-problem-count');
+    function renderYamlProblems(list) {
+      const errors = list.filter(item => item.severity === 'error').length, warnings = list.length - errors;
+      yamlProblemCount.textContent = list.length ? `✖ ${errors} 个错误　⚠ ${warnings} 个警告` : '✔ 未发现问题';
+      yamlProblemCount.classList.toggle('has-error', errors > 0);
+      yamlProblems.hidden = !list.length;
+      yamlProblems.replaceChildren(...list.slice(0, 100).map(item => {
+        const row = document.createElement('li'), badge = document.createElement('span'), where = document.createElement('span'), text = document.createElement('span');
+        row.className = item.severity; row.tabIndex = 0;
+        badge.className = 'badge'; badge.textContent = item.severity === 'error' ? '✖' : '⚠';
+        where.className = 'where'; where.textContent = `第 ${item.line} 行`;
+        text.textContent = item.message;
+        row.append(badge, where, text);
+        const jump = () => yamlEditor?.revealProblem?.(item.line, item.column);
+        row.onclick = jump;
+        row.onkeydown = event => { if (event.key === 'Enter') jump(); };
+        return row;
+      }));
+    }
+    document.querySelector('#fold-all').onclick = () => yamlEditor?.foldAll?.();
+    document.querySelector('#unfold-all').onclick = () => yamlEditor?.unfoldAll?.();
+    document.querySelector('#fold-top').onclick = () => yamlEditor?.foldToTopLevel?.();
+    document.querySelector('#format-yaml').onclick = () => yamlEditor?.format?.();
     function setMode(next) {
       mode = next;
       localStorage.setItem('mihomo-mode', mode);
