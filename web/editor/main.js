@@ -62,9 +62,10 @@ configureMonacoYaml(monaco, {
 
 let editor = null;
 let model = null;
+let theme = document.documentElement.classList.contains('light') ? 'vs' : 'vs-dark';
 
 window.MihomoMonacoEditor = {
-  create(host, value, onChange) {
+  create(host, value, onChange, onEscape) {
     if (!model) {
       model = monaco.editor.createModel(value || '', 'yaml', monaco.Uri.parse(VALUES_URI));
       model.onDidChangeContent(() => onChange?.(model.getValue()));
@@ -87,8 +88,12 @@ window.MihomoMonacoEditor = {
         scrollBeyondLastLine: false,
         smoothScrolling: false,
         fontSize: 13,
-        fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace'
+        fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+        theme
       });
+      // Esc leaves the editor unless a Monaco widget (suggest/find/hints) should consume it.
+      editor.addCommand(monaco.KeyCode.Escape, () => onEscape?.(),
+        '!suggestWidgetVisible && !findWidgetVisible && !parameterHintsVisible && !renameInputVisible');
     }
     editor.layout();
     return this;
@@ -104,5 +109,9 @@ window.MihomoMonacoEditor = {
   },
   layout() {
     editor?.layout();
+  },
+  setTheme(light) {
+    theme = light ? 'vs' : 'vs-dark';
+    monaco.editor.setTheme(theme);
   }
 };

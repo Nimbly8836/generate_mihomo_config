@@ -37,8 +37,8 @@ COPY web/vendor/codemirror/codemirror.js \
 COPY web/vendor/monaco/editor.js \
      web/vendor/monaco/editor.css \
      web/vendor/monaco/LICENSES.txt ./web/vendor/monaco/
-COPY web/vendor/monaco/assets/editor.worker-pDU4FRj1.js \
-     web/vendor/monaco/assets/yaml.worker-UCHN0G_x.js ./web/vendor/monaco/assets/
+COPY web/vendor/monaco/assets/editor.worker.js \
+     web/vendor/monaco/assets/yaml.worker.js ./web/vendor/monaco/assets/
 
 USER 10001:10001
 EXPOSE 4567

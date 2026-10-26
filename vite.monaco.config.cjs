@@ -1,6 +1,9 @@
 const { defineConfig } = require('vite');
 
+// Served by web_server.rb at /assets/monaco/* (exact allowlist), so worker URLs
+// baked into editor.js must use this base and stable, unhashed file names.
 module.exports = defineConfig({
+  base: '/assets/monaco/',
   build: {
     outDir: 'web/vendor/monaco',
     emptyOutDir: false,
@@ -19,5 +22,12 @@ module.exports = defineConfig({
     cssCodeSplit: false,
     sourcemap: false,
     chunkSizeWarningLimit: 3000
+  },
+  worker: {
+    rollupOptions: {
+      output: {
+        entryFileNames: 'assets/[name].js'
+      }
+    }
   }
 });

@@ -77,8 +77,8 @@ class WebSmokeTest < Minitest::Test
     assets = {
       '/assets/monaco/editor.js' => ['text/javascript', 'web/vendor/monaco/editor.js'],
       '/assets/monaco/editor.css' => ['text/css', 'web/vendor/monaco/editor.css'],
-      '/assets/monaco/assets/editor.worker-pDU4FRj1.js' => ['text/javascript', 'web/vendor/monaco/assets/editor.worker-pDU4FRj1.js'],
-      '/assets/monaco/assets/yaml.worker-UCHN0G_x.js' => ['text/javascript', 'web/vendor/monaco/assets/yaml.worker-UCHN0G_x.js'],
+      '/assets/monaco/assets/editor.worker.js' => ['text/javascript', 'web/vendor/monaco/assets/editor.worker.js'],
+      '/assets/monaco/assets/yaml.worker.js' => ['text/javascript', 'web/vendor/monaco/assets/yaml.worker.js'],
       '/assets/monaco/meta-json-schema.json' => ['application/json', 'web/meta-json-schema.json']
     }
     assets.each do |path, (content_type, relative_file)|
@@ -88,6 +88,18 @@ class WebSmokeTest < Minitest::Test
       assert_equal 'nosniff', response.fetch('x-content-type-options'), path
       expected = File.binread(File.expand_path("../#{relative_file}", __dir__))
       assert_equal expected, response.body.b, path
+    end
+  end
+
+  # Worker URLs are compiled into editor.js; a path mismatch silently disables YAML diagnostics.
+  def test_worker_urls_compiled_into_editor_bundle_are_served
+    bundle = File.read(File.expand_path('../web/vendor/monaco/editor.js', __dir__))
+    workers = bundle.scan(/new Worker\("([^"]+)"/).flatten.uniq
+    assert_equal 2, workers.length, workers.inspect
+    workers.each do |path|
+      response = request(path)
+      assert_equal '200', response.code, path
+      assert response.fetch('content-type').start_with?('text/javascript'), path
     end
   end
 

@@ -31,5 +31,5 @@
 !web/vendor/monaco/editor.css
 !web/vendor/monaco/LICENSES.txt
 !web/vendor/monaco/assets/
-!web/vendor/monaco/assets/editor.worker-pDU4FRj1.js
-!web/vendor/monaco/assets/yaml.worker-UCHN0G_x.js
+!web/vendor/monaco/assets/editor.worker.js
+!web/vendor/monaco/assets/yaml.worker.js

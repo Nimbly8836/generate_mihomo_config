@@ -4,7 +4,7 @@
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Mihomo 配置生成器</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="stylesheet" href="/assets/monaco/index.css">
+  <link rel="stylesheet" href="/assets/monaco/editor.css">
   <style>
     :root {
       color-scheme: dark;
@@ -67,11 +67,12 @@
     .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 20px; }
     label { display: flex; flex-direction: column; gap: 7px; margin: 16px 0; font-size: 13px; font-weight: 500; min-width: 0; }
     .grid > label { margin: 0; }
-    input, textarea, select { width: 100%; min-width: 0; min-height: 40px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 6px; background: var(--input); color: var(--foreground); font: inherit; font-weight: 400; scroll-margin-block: 100px; }
-    input::placeholder, textarea::placeholder { color: var(--muted-foreground); opacity: .85; }
-    input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-color: var(--ring); }
-    input:user-invalid, textarea:user-invalid, select:user-invalid { border-color: var(--destructive); }
-    textarea { display: block; min-height: 110px; resize: vertical; font: 12px/1.75 ui-monospace, SFMono-Regular, Consolas, monospace; }
+    /* Exclude Monaco's internal input/textarea. Zero specificity so later rules (e.g. mobile font-size) still win. */
+    :where(input, textarea, select):not(:where(.monaco-editor *)) { width: 100%; min-width: 0; min-height: 40px; padding: 9px 11px; border: 1px solid var(--border); border-radius: 6px; background: var(--input); color: var(--foreground); font: inherit; font-weight: 400; scroll-margin-block: 100px; }
+    :where(input, textarea):not(:where(.monaco-editor *))::placeholder { color: var(--muted-foreground); opacity: .85; }
+    :where(input, textarea, select):not(:where(.monaco-editor *)):focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; border-color: var(--ring); }
+    :where(input, textarea, select):not(:where(.monaco-editor *)):user-invalid { border-color: var(--destructive); }
+    :where(textarea):not(:where(.monaco-editor *)) { display: block; min-height: 110px; resize: vertical; font: 12px/1.75 ui-monospace, SFMono-Regular, Consolas, monospace; }
     #file-values { display: none; min-height: 520px; tab-size: 2; }
     #monaco-editor { height: 520px; border: 1px solid var(--border); border-radius: 6px; background: var(--input); overflow: hidden; }
     .checkbox { flex-direction: row; align-items: center; gap: 10px; margin: 0; }
@@ -128,7 +129,7 @@
       .brand-mark { display: none; }
       section { padding: 18px; }
       .entry-card { padding: 14px; }
-      input, textarea, select { font-size: 16px; }
+      :where(input, textarea, select):not(:where(.monaco-editor *)) { font-size: 16px; }
       .mode-switch { display: flex; }
       .mode-switch button { flex: 1; padding: 8px 10px; }
       #subscription-dialog, #result-dialog, #reference-dialog { padding: 18px; }
@@ -357,13 +358,13 @@
     const textAt = (data, key, index) => String(data.getAll(key)[index] || '').trim();
     const validName = name => /^[a-z][a-z0-9_-]*$/.test(name);
 
-    function setTheme(theme) { const light = theme === 'light'; document.documentElement.classList.toggle('light', light); localStorage.setItem('mihomo-theme', theme); themeToggle.textContent = light ? '🌙' : '☀️'; themeToggle.title = light ? '切换到黑夜模式' : '切换到白天模式'; themeToggle.setAttribute('aria-label', themeToggle.title); }
+    function setTheme(theme) { const light = theme === 'light'; document.documentElement.classList.toggle('light', light); localStorage.setItem('mihomo-theme', theme); themeToggle.textContent = light ? '🌙' : '☀️'; themeToggle.title = light ? '切换到黑夜模式' : '切换到白天模式'; themeToggle.setAttribute('aria-label', themeToggle.title); if (typeof MihomoMonacoEditor !== 'undefined') MihomoMonacoEditor.setTheme(light); }
     themeToggle.onclick = () => setTheme(document.documentElement.classList.contains('light') ? 'dark' : 'light');
     setTheme(localStorage.getItem('mihomo-theme') || 'dark');
     fileValues.value = 'proxy_providers: []\nlocal_proxies: []\nwireguard: []\ncustom_rule_providers: []\nlocal_rules: []\nproxy_rules: []\ndirect_rules: []\ngroup_rules: {}\n';
     function refreshYamlEditor() {
       if (!yamlEditor && typeof MihomoMonacoEditor !== 'undefined') {
-        yamlEditor = MihomoMonacoEditor.create(monacoHost, fileValues.value, value => { fileValues.value = value; });
+        yamlEditor = MihomoMonacoEditor.create(monacoHost, fileValues.value, value => { fileValues.value = value; }, () => generate.focus());
       } else if (!yamlEditor && typeof CodeMirror !== 'undefined') {
         // Test/fallback path for environments that do not load the Monaco bundle.
         yamlEditor = CodeMirror.fromTextArea(fileValues, {

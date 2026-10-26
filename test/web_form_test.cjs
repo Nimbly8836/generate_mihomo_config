@@ -115,9 +115,55 @@ test("YAML editor is initialized once, preserves text and syncs edits to generat
   assert.equal(refreshed, 2);
 });
 
+test("Monaco editor is created once, syncs edits, handles Esc and follows the page theme", async () => {
+  const { context, element, requests } = page(false);
+  let created = 0, layouts = 0, onChange, onEscape, host, initial, themes = [];
+  context.MihomoMonacoEditor = {
+    create(target, value, change, escape) {
+      created++;
+      host = target; initial = value; onChange = change; onEscape = escape;
+      return this;
+    },
+    getValue() { return element("#file-values").value; },
+    layout() { layouts++; },
+    setTheme(light) { themes.push(light); },
+  };
+  element("#file-values").value = "port: 8000\n";
+  element("#file-mode").onclick();
+  assert.equal(host, element("#monaco-editor"));
+  assert.equal(initial, "port: 8000\n");
+  onChange("port: 8001\n");
+  await element("#form").onsubmit({ preventDefault() {} });
+  assert.equal(requests[0].values, "port: 8001\n");
+  onEscape();
+  assert.equal(element("#generate").focused, true);
+  element("#form-mode").onclick();
+  element("#file-mode").onclick();
+  assert.equal(created, 1);
+  assert.ok(layouts >= 1);
+  element("#theme-toggle").onclick();
+  assert.deepEqual(themes, [true]);
+});
+
+test("every /assets path referenced by the page exists in the vendored build", () => {
+  const refs = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]);
+  assert.ok(refs.length >= 2, "expected editor script and stylesheet references");
+  for (const ref of refs) {
+    const file = path.join(__dirname, "../web/vendor", ref.replace(/^\/assets\//, ""));
+    assert.ok(fs.existsSync(file), `${ref} is referenced but ${file} does not exist`);
+  }
+});
+
+test("page form-control styles do not leak into Monaco's internal input", () => {
+  const css = html.match(/<style>([\s\S]*?)<\/style>/)[1];
+  assert.doesNotMatch(css, /^\s*input, textarea, select \{/m);
+  assert.doesNotMatch(css, /^\s*textarea \{/m);
+  assert.match(css, /:not\(:where\(\.monaco-editor \*\)\)/);
+});
+
 test("Monaco YAML editor assets are served locally without a CDN", () => {
   assert.match(html, /src="\/assets\/monaco\/editor.js"/);
-  assert.match(html, /href="\/assets\/monaco\/index.css"/);
+  assert.match(html, /href="\/assets\/monaco\/editor.css"/);
   assert.match(html, /id="monaco-editor"/);
   assert.doesNotMatch(html, /<(?:script|link)[^>]*(?:src|href)="https?:/);
 });
