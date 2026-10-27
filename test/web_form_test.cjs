@@ -753,15 +753,18 @@ test("reusable recovery import and explicit reset clear inputs and support manua
   };
   await element("#my-subscriptions").onclick();
   assert.equal(element("#update-subscription").disabled, true);
-  element("#import-code").value = "reusable-recovery";
+  const reusable = "0123456789abcdef".repeat(4);
+  // Pasted from a chat: label, wrapped line, zero-width space, upper case, full-width digit.
+  element("#import-code").value =
+    `恢复码：${reusable.slice(0, 32).toUpperCase()}\u200B\n${reusable.slice(32).replace("9", "９")} `;
   await element("#import-recovery").onclick();
   assert.equal(element("#import-code").value, "");
-  assert.equal(element("#recovery-code").value, "reusable-recovery");
+  assert.equal(element("#recovery-code").value, reusable);
   assert.match(element("#subscription-message").textContent, /原恢复码仍有效/);
   assert.equal(element("#publish").disabled, true);
   assert.equal(element("#file-values").value, "");
   assert.deepEqual(calls.find(([url]) => url.endsWith("/recover"))[1], {
-    recovery_code: "reusable-recovery",
+    recovery_code: reusable,
   });
   await element("#rotate-recovery").onclick();
   assert.equal(element("#recovery-code").value, "new-recovery");
@@ -769,15 +772,32 @@ test("reusable recovery import and explicit reset clear inputs and support manua
   await element("#copy-recovery").onclick();
   assert.equal(element("#recovery-code").selected, true);
   assert.match(element("#subscription-message").textContent, /手动复制/);
-  context.fetch = async () => ({
-    ok: false,
-    json: async () => ({ error: "恢复码无效" }),
-  });
-  element("#import-code").value = "bad-code";
+  // Malformed input never reaches the server and stays in the box so it can be fixed.
+  let sent = 0;
+  context.fetch = async () => {
+    sent++;
+    return { ok: false, json: async () => ({ error: "未找到该恢复码" }) };
+  };
+  element("#import-code").value = reusable.slice(0, 63);
   await element("#import-recovery").onclick();
+  assert.equal(sent, 0);
+  assert.equal(element("#import-code").value, reusable.slice(0, 63));
+  assert.match(element("#subscription-message").textContent, /64 位/);
+  // A well-formed but unknown code shows the server's explanation.
+  element("#import-code").value = "c".repeat(64);
+  await element("#import-recovery").onclick();
+  assert.equal(sent, 1);
   assert.equal(element("#import-code").value, "");
   assert.equal(element("#recovery-code").value, "new-recovery");
-  assert.match(element("#subscription-message").textContent, /恢复码无效/);
+  assert.match(element("#subscription-message").textContent, /未找到该恢复码/);
+});
+
+test("recovery import box is a visible text field that password managers skip", () => {
+  const input = html.match(/<input id="import-code"[^>]*>/)[0];
+  assert.match(input, /type="text"/);
+  assert.doesNotMatch(input, /type="password"/);
+  assert.match(input, /autocomplete="off"/);
+  assert.match(input, /autocapitalize="off"/);
 });
 
 test("editing a published source only saves on explicit update or save-as-new", async () => {

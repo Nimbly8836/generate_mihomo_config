@@ -188,9 +188,14 @@ class WebSubscriptionsTest < Minitest::Test
   def test_recovery_is_reusable_across_devices_until_explicit_reset
     first, code = identity
     row = create(first)
-    ['../subscriptions.json', nil, {}, '<script>', 'a' * 64].each do |invalid|
-      assert_equal '404', request('POST', '/api/identity/recover', { recovery_code: invalid }).code
+    # Malformed input is a 400 with a format hint; a well-formed but unknown code is a 404.
+    ['../subscriptions.json', nil, {}, '<script>', code[0, 63], "#{code}0"].each do |invalid|
+      assert_equal '400', request('POST', '/api/identity/recover', { recovery_code: invalid }).code
     end
+    assert_equal '404', request('POST', '/api/identity/recover', { recovery_code: 'a' * 64 }).code
+    # Copies from chats/notes/IMEs still identify the same reusable code.
+    pasted = "恢复码：#{code[0, 32].upcase}\u200B \n#{code[32..].tr('0-9', '０-９')}\u00A0"
+    assert_equal '200', request('POST', '/api/identity/recover', { recovery_code: pasted }).code
     response = request('POST', '/api/identity/recover', { recovery_code: code })
     assert_equal '200', response.code
     recovered = response['set-cookie'].split(';').first

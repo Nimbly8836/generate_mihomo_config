@@ -116,12 +116,32 @@ class SubscriptionStore
     end
   end
 
+  # Codes are copied between devices through chats, notes and password fields, which add
+  # whitespace, zero-width characters, full-width digits, labels or autofilled prefixes.
+  # Accept the input only if it contains exactly one 64-character hex token.
+  INVISIBLE = /[\s\u200B-\u200D\u2060\uFEFF]/
+
+  def self.normalize_recovery(code)
+    return unless code.is_a?(String) && code.bytesize <= 4096
+
+    text = code.unicode_normalize(:nfkc).downcase.gsub(INVISIBLE, '')
+    runs = text.scan(/[0-9a-f]+/)
+    exact = runs.select { |run| run.length == 64 }
+    exact.first if exact.length == 1 && runs.none? { |run| run.length > 64 }
+  rescue ArgumentError, Encoding::CompatibilityError
+    nil
+  end
+
   def recover(code, session = nil)
-    raise WebError.new(404, '恢复码无效') unless code.is_a?(String) && code.match?(TOKEN)
+    code = self.class.normalize_recovery(code)
+    raise WebError.new(400, '恢复码格式不正确：应为 64 位 0–9 / a–f 字符。请重新完整复制，不要包含其他内容。') unless code
 
     transaction(write: true) do |db|
       id = db.get_first_value('SELECT id FROM owners WHERE recovery_hash = ?', [digest(code)])
-      raise WebError.new(404, '恢复码无效') unless id
+      unless id
+        raise WebError.new(404, '未找到该恢复码：可能已被“重置恢复码”作废，' \
+                                '或当前访问的不是生成该码的同一服务（地址或数据目录不同）。')
+      end
       next [nil, nil] if session_owner(db, session) == id
 
       # Recovery codes are reusable until explicitly reset. Never rotate another

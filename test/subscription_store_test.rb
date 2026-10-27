@@ -42,6 +42,39 @@ class SubscriptionStoreTest < Minitest::Test
     assert_raises(WebError) { @store.list(row['token']) }
   end
 
+  def test_recovery_code_tolerates_copy_artifacts_but_not_ambiguous_input
+    code = @recovery
+    {
+      'uppercase' => code.upcase,
+      'wrapped with space' => "#{code[0, 32]} #{code[32..]}",
+      'wrapped with newline' => "#{code[0, 32]}\n#{code[32..]}",
+      'zero-width space' => "#{code[0, 10]}\u200B#{code[10..]}",
+      'non-breaking space' => "#{code}\u00A0",
+      'full-width digits' => code.tr('0-9', '０-９'),
+      'label prefix' => "恢复码：#{code}",
+      'non-hex autofill prefix' => "saved_pw:#{code}"
+    }.each do |label, pasted|
+      session, = @store.recover(pasted)
+      assert_equal @store.list(@session), @store.list(session), label
+    end
+
+    {
+      'truncated' => code[0, 63],
+      'hex autofill prefix glued on' => "abc123#{code}",
+      'two codes' => "#{code} #{'b' * 64}",
+      'empty' => '',
+      'not a string' => nil
+    }.each do |label, pasted|
+      error = assert_raises(WebError, label) { @store.recover(pasted) }
+      assert_equal 400, error.status, label
+      assert_includes error.message, '64 位', label
+    end
+
+    unknown = assert_raises(WebError) { @store.recover('c' * 64) }
+    assert_equal 404, unknown.status
+    assert_includes unknown.message, '重置恢复码'
+  end
+
   def test_permissions_restart_and_atomic_rejection
     row = @store.change(@session, :create, nil, CONFIG)
     assert_equal 0o700, File.stat(@directory).mode & 0o777
