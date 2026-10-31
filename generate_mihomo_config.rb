@@ -202,11 +202,12 @@ class TemplateContext
     @local_proxies = normalize_hash_array(@values['local_proxies'], 'local_proxies')
     @local_proxy_groups = normalize_hash_array(@values['local_proxy_groups'], 'local_proxy_groups')
     @local_rules = normalize_string_array(@values['local_rules'], 'local_rules')
-    @proxy_rules = normalize_string_array(@values['proxy_rules'], 'proxy_rules')
-    @direct_rules = normalize_string_array(@values['direct_rules'], 'direct_rules')
+    @quick_rule_providers = []
+    @proxy_rules = normalize_quick_rules(@values['proxy_rules'], 'proxy_rules', 'proxy')
+    @direct_rules = normalize_quick_rules(@values['direct_rules'], 'direct_rules', 'DIRECT')
     @group_rules = normalize_rule_groups(@values['group_rules'])
     @fake_ip_filter = normalize_string_array(optional_value('fake_ip_filter', 'fake-ip-filter'), 'fake_ip_filter')
-    @custom_rule_providers = normalize_hash_array(@values['custom_rule_providers'], 'custom_rule_providers')
+    @custom_rule_providers = normalize_hash_array(@values['custom_rule_providers'], 'custom_rule_providers') + @quick_rule_providers
     configured_url_test = @values['url_test']
     unless configured_url_test.nil? || configured_url_test.is_a?(Hash)
       warn 'url_test must be a mapping'
@@ -216,6 +217,7 @@ class TemplateContext
     validate_group_mode!
     validate!
     merge_proxy_providers!
+    ensure_rule_groups!
   end
 
   def get_binding
@@ -542,6 +544,52 @@ class TemplateContext
     end
   end
 
+  # Quick sections reuse the existing rule-provider rendering/validation pipeline.
+  # Handwritten rules keep their old priority; providers join custom_rule_providers.
+  def normalize_quick_rules(value, key, policy)
+    return normalize_string_array(value, key) unless value.is_a?(Hash)
+
+    unless (value.keys - %w[rules providers]).empty?
+      warn "#{key} only accepts rules and providers"
+      exit 1
+    end
+    rules = normalize_string_array(value['rules'], "#{key}.rules")
+    normalize_hash_array(value['providers'], "#{key}.providers").each do |provider|
+      unless provider['name'].is_a?(String) && provider['name'].match?(/\A[A-Za-z0-9][A-Za-z0-9_-]*\z/)
+        warn "#{key}.providers requires valid provider names (letters, digits, _ or -)"
+        exit 1
+      end
+      if provider.key?('policy') && provider['policy'] != policy
+        warn "#{key}.providers policy must match the section target #{policy}"
+        exit 1
+      end
+      @quick_rule_providers << provider.merge('policy' => policy)
+    end
+    rules
+  end
+
+  def ensure_rule_groups!
+    regions = %w[hk jp tw sg us kr eu others]
+    services = group_mode == 'detailed' ? DETAILED_GROUP_PARENTS.keys : ALWAYS_SERVICE_GROUP_NAMES
+    known = %w[default proxy my_proxy ad_block all_nodes all_nodes_auto final domestic other] +
+            SIMPLE_GROUP_NAMES + services + regions.flat_map { |name| [name, "#{name}_auto"] } +
+            local_proxy_group_names + wireguard.groups.map { |group| group.fetch('name') }
+    occupied_nodes = local_proxy_names + wireguard.proxies.map { |node| node.fetch('name') }
+    failover_enabled = !@values['failover'].nil? && @values['failover'] != {}
+    known += FailoverConfig::NAMES if failover_enabled
+    group_rules.each_key do |name|
+      next if known.include?(name) || %w[DIRECT REJECT REJECT-DROP PASS].include?(name)
+
+      if occupied_nodes.include?(name) || %w[GLOBAL COMPATIBLE].include?(name) || FailoverConfig::NAMES.include?(name)
+        warn "group_rules target #{name} conflicts with a node or reserved group name"
+        exit 1
+      end
+      @local_proxy_groups << { 'name' => name, 'type' => 'select', 'proxies' => ['proxy', *regions, 'DIRECT'] }
+    end
+    # wireguard validation above may have cached the original custom group names.
+    @local_proxy_group_names = nil
+  end
+
   def normalize_rule_groups(value)
     unless value.nil? || value.is_a?(Hash)
       warn 'group_rules must be a mapping'
@@ -549,7 +597,11 @@ class TemplateContext
     end
 
     (value || {}).each_with_object({}) do |(group, rules), normalized|
-      normalized[group.to_s] = normalize_string_array(rules, "group_rules.#{group}")
+      unless group.is_a?(String) && !group.strip.empty? && group == group.strip && !group.match?(/[,\r\n\0]/)
+        warn 'group_rules keys must be nonempty group names without commas or newlines'
+        exit 1
+      end
+      normalized[group] = normalize_quick_rules(rules, "group_rules.#{group}", group)
     end
   end
 

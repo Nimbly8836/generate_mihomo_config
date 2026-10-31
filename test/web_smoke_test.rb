@@ -165,6 +165,22 @@ class WebSmokeTest < Minitest::Test
     assert_equal created.fetch('config').b, download.body.b
   end
 
+  def test_yaml_quick_provider_creates_a_group_and_preserves_source
+    yaml = Psych.dump('web_secret' => 'smoke-test-only', 'group_rules' => {
+      'sports' => { 'providers' => [{ 'name' => 'sports_rules', 'url' => 'https://example.com/sports.mrs',
+                                    'behavior' => 'domain', 'format' => 'mrs' }] }
+    })
+    response = request('/api/generate', 'values' => yaml)
+    assert_equal '200', response.code
+    result = JSON.parse(response.body)
+    assert_equal yaml, result.fetch('source')
+    config = Psych.safe_load(result.fetch('config'), aliases: true)
+    assert_includes config.fetch('rules'), 'RULE-SET,sports_rules,sports'
+    group = config.fetch('proxy-groups').find { |g| g['name'] == 'sports' }
+    assert_equal %w[proxy hk jp tw sg us kr eu others DIRECT], group.fetch('proxies')
+    assert_equal 'DIRECT', config.fetch('rule-providers').fetch('sports_rules').fetch('proxy')
+  end
+
   def test_yaml_input_retains_explicit_false
     yaml = Psych.dump('proxy_providers' => [], 'local_proxies' => [], 'web_secret' => 'smoke-test-only',
                       'config_overrides' => { 'experimental' => { 'dialer-ip4p-convert' => false } })

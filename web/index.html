@@ -230,13 +230,13 @@
         <label>直接代理到 proxy<textarea name="proxy_rules" aria-describedby="external-rule-hint" placeholder="DOMAIN-SUFFIX,example.com&#10;DOMAIN,api.example.com"></textarea></label>
         <p id="external-rule-hint" class="hint callout">外部列表 URL 请填到下面的<a href="#external-rules">“外部规则集”</a>，目标组设为 <code>proxy</code>；不要直接粘贴到这里。</p>
         <label>直接连接到 DIRECT<textarea name="direct_rules" placeholder="DOMAIN-SUFFIX,lan.example.com"></textarea></label>
-        <label>插入其他内置组<textarea name="group_rules" aria-describedby="group-help" placeholder="chat: DOMAIN-SUFFIX,t.me&#10;media: GEOSITE,youtube&#10;ai: DOMAIN-SUFFIX,example.ai"></textarea></label>
-        <p class="hint">每行：组名: 类型,匹配值。simple 模式使用 chat、ai 等父组；telegram、openai 等详细组只在 detailed 模式可用。</p>
+        <label>插入已有组或新建组<textarea name="group_rules" aria-describedby="group-help" placeholder="chat: DOMAIN-SUFFIX,t.me&#10;media: GEOSITE,youtube&#10;ai: DOMAIN-SUFFIX,example.ai"></textarea></label>
+        <p class="hint">每行：组名: 类型,匹配值。已有组直接复用；新组自动创建，默认跟随 proxy，可选各地区组和 DIRECT。simple 模式手写 telegram 等名称时只创建自定义组，不会启用 detailed 的内置服务规则。</p>
         <p id="group-help" class="hint callout" aria-live="polite"></p>
         <details><summary>隐藏自动测速组与特殊目标</summary><p id="auto-group-help" class="hint"></p><p class="hint">hk、jp 等地区组默认选择对应的隐藏 auto 组，也可手动选择本地区节点。地区组和 auto 组均不包含 my_proxy / DIRECT，无匹配节点时拒绝连接。DIRECT、REJECT 仍可作为规则目标。</p></details>
       </section>
       <section id="external-rules">
-        <header class="section-header"><div><h2>外部规则集</h2><p class="hint">添加规则直链，自动生成 rule-providers 和 RULE-SET。</p></div></header>
+        <header class="section-header"><div><h2>外部规则集</h2><p class="hint">添加规则直链，自动生成 rule-providers 和 RULE-SET；目标组也可以填写新名称。</p></div></header>
         <p class="hint">填写 Clash/Mihomo 规则集的直链，不是节点订阅或网页地址。由 Mihomo 使用配置时下载，本页面不会访问该 URL。</p>
         <details><summary>如何选择内容类型、格式和目标组？</summary>
         <p class="hint">默认通过 DIRECT 下载，每 24 小时更新。</p>
@@ -341,7 +341,7 @@
         <label>规则直链 URL<input name="rule_url" type="url" placeholder="https://example.com/media.mrs" required></label>
         <label>内容类型 behavior<select name="rule_behavior"><option value="domain">domain（域名）</option><option value="ipcidr">ipcidr（网段）</option><option value="classical">classical（规则）</option></select></label>
         <label>文件格式 format<select name="rule_format"><option value="mrs">mrs</option><option value="yaml">yaml</option><option value="text">text</option></select></label>
-        <label>目标组或动作<input name="rule_policy" list="policy-targets" value="proxy" required></label>
+        <label>目标组或动作（可新建组）<input name="rule_policy" list="policy-targets" value="proxy" required></label>
         <label>IP 规则解析选项<select name="rule_no_resolve"><option value="">默认</option><option value="no-resolve">不主动解析域名（no-resolve）</option></select></label>
       </div>
       <p class="hint">名称不能与已有内置规则源重复。目标组可从建议列表中选择，也可使用本表单生成的 wg_名称。更复杂的缓存路径、下载代理等设置请使用 YAML 模式的 custom_rule_providers。</p>
@@ -437,10 +437,19 @@
     formMode.onclick = () => setMode('form');
     fileMode.onclick = () => setMode('file');
 
-    function targetNames(data) {
+    function targetNames(data, includeQuick = true) {
+      const candidates = [];
+      if (includeQuick) {
+        lines(data.get('group_rules')).forEach(line => {
+          const split = line.indexOf(':');
+          if (split > 0) candidates.push(line.slice(0, split).trim());
+        });
+        candidates.push(...data.getAll('rule_policy').map(name => String(name).trim()));
+      }
+      const quick = candidates.filter(name => name && !/[,\r\n\0:]/.test(name) && !['GLOBAL', 'COMPATIBLE', 'failover', 'failover_primary', 'failover_backup'].includes(name));
       const wgGroups = data.getAll('wg_name').map(name => String(name).trim()).filter(validName).map(name => `wg_${name}`);
       const subscriptionGroups = data.getAll('subscription_group_name').map(name => String(name).trim()).filter(Boolean);
-      return [...new Set([...baseGroups, ...(data.get('group_mode') === 'detailed' ? detailedGroups : []), ...autoGroups, ...(data.get('failover_enabled') === 'on' ? ['failover'] : []), 'DIRECT', 'REJECT', ...wgGroups, ...subscriptionGroups])];
+      return [...new Set([...baseGroups, ...(data.get('group_mode') === 'detailed' ? detailedGroups : []), ...autoGroups, ...(data.get('failover_enabled') === 'on' ? ['failover'] : []), 'DIRECT', 'REJECT', ...wgGroups, ...subscriptionGroups, ...quick])];
     }
     function updateGroupHelp() {
       const data = new FormData(form);
@@ -648,10 +657,15 @@
       lines(data.get('group_rules')).forEach((line, index) => {
         const split = line.indexOf(':');
         const group = line.slice(0, split).trim();
-        if (split <= 0 || !targets.includes(group)) throw new Error(`分组规则第 ${index + 1} 行的分组在当前模式下不存在，请参考上方列表`);
+        if (split <= 0 || !targets.includes(group)) throw new Error(`分组规则第 ${index + 1} 行请填写有效组名（不能使用保留名称）`);
         const rules = manualRules(line.slice(split + 1), `分组规则第 ${index + 1} 行`);
         if (!rules.length) throw new Error(`分组规则第 ${index + 1} 行缺少匹配条件`);
         (values.group_rules[group] ||= []).push(...rules);
+      });
+      // Provider cards may also target new groups; the shared generator owns group creation.
+      const knownTargets = targetNames(data, false);
+      values.custom_rule_providers.forEach(provider => {
+        if (!knownTargets.includes(provider.policy)) values.group_rules[provider.policy] ||= [];
       });
       return values;
     }

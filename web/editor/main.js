@@ -15,6 +15,49 @@ const valuesSchema = {
   $schema: 'http://json-schema.org/draft-07/schema#',
   type: 'object',
   additionalProperties: false,
+  definitions: {
+    quickRuleProvider: {
+      type: 'object',
+      required: ['name', 'behavior', 'format'],
+      description: '规则源的策略由所在分区推断，无需填写 policy；兼容旧 policy，但与分区冲突时后端会拒绝。允许 Mihomo 原生规则源字段。',
+      properties: {
+        name: { type: 'string', minLength: 1, pattern: '^[A-Za-z0-9][A-Za-z0-9_-]*$' },
+        behavior: { enum: ['domain', 'ipcidr', 'classical'] },
+        format: { enum: ['mrs', 'yaml', 'text'] },
+        type: { enum: ['http', 'file'], description: '省略时，有 url 推断为 http，否则由 path 推断为 file。' },
+        url: { type: 'string', minLength: 1 },
+        path: { type: 'string', minLength: 1 },
+        interval: { type: 'integer', minimum: 0 },
+        proxy: { type: 'string' },
+        policy: { type: 'string', description: '可省略；若填写，必须与所在分区的策略一致（后端校验）。' },
+        rule_options: { type: 'array', items: { type: 'string' } }
+      },
+      additionalProperties: true,
+      anyOf: [
+        { required: ['url'], properties: { type: { const: 'http' } } },
+        {
+          required: ['path'],
+          properties: { type: { const: 'file' } },
+          not: { required: ['url'] }
+        }
+      ],
+      not: { properties: { format: { const: 'mrs' }, behavior: { const: 'classical' } }, required: ['format', 'behavior'] }
+    },
+    quickRules: {
+      description: '兼容旧版规则字符串数组，或使用包含 rules 与 providers 的对象；两项均可省略。规则源策略由所在分区决定。',
+      anyOf: [
+        { type: 'array', items: { type: 'string' } },
+        {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            rules: { type: 'array', items: { type: 'string' } },
+            providers: { type: 'array', items: { $ref: '#/definitions/quickRuleProvider' } }
+          }
+        }
+      ]
+    }
+  },
   properties: {
     port: { type: 'integer', minimum: 1, maximum: 65535, description: '混合端口' },
     web_port: { type: 'integer', minimum: 1, maximum: 65535, description: 'Web 控制端口' },
@@ -33,9 +76,14 @@ const valuesSchema = {
     local_proxy_groups: { type: 'array', items: { type: 'object' } },
     failover: { type: ['object', 'null'] },
     wireguard: { type: 'array', items: { type: 'object' } },
-    proxy_rules: { type: 'array', items: { type: 'string' } },
-    direct_rules: { type: 'array', items: { type: 'string' } },
-    group_rules: { type: 'object' },
+    proxy_rules: { $ref: '#/definitions/quickRules' },
+    direct_rules: { $ref: '#/definitions/quickRules' },
+    group_rules: {
+      type: 'object',
+      description: '按策略组名称配置快捷规则。已有组直接复用；未知组自动创建 select 组，默认选择代理，并提供地区组和 DIRECT 选项。组名不能为空或包含逗号、换行。',
+      propertyNames: { type: 'string', minLength: 1, pattern: '^(?![\\s\\S]*[,\\r\\n\\u0000])\\S(?:[\\s\\S]*\\S)?$' },
+      additionalProperties: { $ref: '#/definitions/quickRules' }
+    },
     local_rules: { type: 'array', items: { type: 'string' } },
     custom_rule_providers: { type: 'array', items: { type: 'object' } },
     url_test: { type: 'object' },

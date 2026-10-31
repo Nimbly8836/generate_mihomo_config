@@ -116,10 +116,10 @@ WG 等可选示例在注释中，启用时应替换相应空块，而不是保�
 ### 手写规则和外部规则集
 
 - **直接代理到 proxy / 直接连接到 DIRECT**：每行只写 `类型,匹配值`，如 `DOMAIN-SUFFIX,example.com`。不要写 URL、目标策略或 `no-resolve`；完整/逻辑规则请使用 YAML 的 `local_rules`。
-- **插入其他内置组**：每行写 `组名: 类型,匹配值`。下方列出当前分组模式的全部内置组；切换 simple/detailed 后同步更新，也会提示本表单的 WG 组。
-  simple 模式使用 `chat`、`ai` 等父组；`telegram`、`openai` 等详细组只能在 detailed 模式使用。填写不存在的组会报错，不会静默忽略。
+- **插入已有组或新建组**：每行写 `组名: 类型,匹配值`。已有组复用，不存在的名称自动建组，默认跟随 `proxy`，提供地区组和 `DIRECT` 选项。
+  simple 模式下显式创建 `telegram` 等同名自定义组，不会同时启用 detailed 的内置服务规则。
 - **外部规则集**：点击添加，填写唯一名称、规则文件直链、`behavior`、`format` 和目标组。要让整个外部列表走普通代理，将目标组填为 `proxy`；无需另外手写 `RULE-SET`。
-  支持多个来源和可选 `no-resolve`；目标组输入框提供当前内置组、WG 组及 `DIRECT` / `REJECT` 建议。
+  支持多个来源和可选 `no-resolve`；目标组输入框提供当前内置组、WG 组及 `DIRECT` / `REJECT` 建议，也可填写新组名。
 
 外部规则源必须是 Clash/Mihomo 规则文件，不是订阅节点或 GitHub 网页地址。
 `domain` 为域名列表，`ipcidr` 为网段列表，`classical` 为带规则类型但不带策略的列表；
@@ -715,7 +715,53 @@ group_rules:
     - DOMAIN-SUFFIX,example-media.test
 ```
 
-`proxy_rules` 和 `direct_rules` 分别直接路由到 `proxy` 和 `DIRECT`；`group_rules` 的键可以使用任意已存在的内置组，例如 `ai`、`chat`、`media`、`dev`、`cloud`；详细模式下也可以使用 `telegram`、`openai` 等详细组。也支持写完整的 Mihomo 规则项，生成器会替换最后一个策略字段。
+`proxy_rules` 和 `direct_rules` 分别路由到 `proxy` 和 `DIRECT`。`group_rules` 中已有的内置、自定义、WG 分组直接复用，保留原有类型、默认项和节点；不存在的名称自动创建 `select` 组，候选项为 `proxy / hk / jp / tw / sg / us / kr / eu / others / DIRECT`，默认 `proxy`，并出现在 `final` 中。不把新组反向塞进它依赖的 `proxy` 或地区组，避免循环。
+
+例如 `media` 已存在就不会重复创建；`sports` 不存在就新建。simple 模式显式写 `telegram` 时会创建默认跟随 `proxy` 的自定义组，但**不会**启用 detailed 的 Telegram 内置规则；原 Telegram 流量仍默认进入 `chat`。节点同名或保留名冲突会报错，`DIRECT` / `REJECT` 等内置动作不会被创建成组。
+
+### 在快捷规则中直接添加 providers
+
+三个快捷入口同时兼容原来的字符串列表和下面的对象写法，`rules` / `providers` 均可省略：
+
+```yaml
+proxy_rules:
+  rules:
+    - DOMAIN-SUFFIX,example-proxy.test
+  providers:
+    - name: extra_proxy
+      url: https://example.com/proxy.mrs
+      behavior: domain
+      format: mrs
+
+direct_rules:
+  providers:
+    - name: extra_direct
+      url: https://example.com/direct.yaml
+      behavior: classical
+      format: yaml
+
+group_rules:
+  sports:
+    rules:
+      - DOMAIN-SUFFIX,example-sports.test
+    providers:
+      - name: sports_ip
+        url: https://example.com/sports-ip.mrs
+        behavior: ipcidr
+        format: mrs
+        rule_options: [no-resolve]
+  media:
+    - DOMAIN-SUFFIX,example-media.test  # 旧写法可混用，复用已有 media
+```
+
+自动生成 `RULE-SET,extra_proxy,proxy`、`RULE-SET,extra_direct,DIRECT`、`RULE-SET,sports_ip,sports,no-resolve`，同时建立对应的 `rule-providers`。不必填写 `policy`；若填写，必须与所在块的目标一致。
+
+- 这里是**分流规则集**，不是 `proxy_providers` 的节点订阅。
+- 每个 provider 必填 `name`、`behavior`、`format`，HTTP 规则集需 `url`，本地文件需 `path`（使用配置的客户端必须能访问该文件）。支持 `interval`、`proxy`、`rule_options` 等既有设置。
+- 名称使用英文字母/数字/下划线/连字符，必须在所有快捷入口和 `custom_rule_providers` 之间唯一，不能覆盖内置规则集。`mrs` 只支持 `domain / ipcidr`，不支持 `classical`。
+- HTTP 默认直连下载、24 小时刷新。本服务不访问用户输入的规则集 URL，实际内容由 Mihomo 加载。
+- 手写规则保持原优先级；快捷 providers 合并到 `custom_rule_providers` 末尾，顺序为 `proxy_rules → direct_rules → group_rules`，在 WG / SSH 之后、内置规则之前。`config_overrides` 仍最后应用，能显式替换整个规则列表。
+- Web 的“插入已有组或新建组”和“外部规则集”目标框均可填写新组名，无需另写 `local_proxy_groups`。YAML 编辑器也支持新语法的校验和补全。
 
 `local_rules` 会放在规则最前面，适合临时覆盖模板规则：
 

@@ -116,12 +116,40 @@ proxy_rules:
 direct_rules:
   - DOMAIN-SUFFIX,example-direct.test
 
-# 其他内置组按组名追加：proxy、ai、chat、media、apple 等；telegram 仅 detailed 模式可用。
+# 已有组按名称复用；不存在的组自动新建 select（proxy、地区组、DIRECT），默认 proxy。
+# simple 模式手写 telegram 等新组名只增加自定义组，不会启用 detailed 的内置服务规则。
 group_rules:
   chat:
     - DOMAIN-SUFFIX,example-telegram.test
   media:
     - DOMAIN-SUFFIX,example-media.test
+
+# 快捷配置也支持 rules + providers 对象。启用时替换上面的对应块，不要重复 YAML 键。
+# proxy_rules:
+#   rules:
+#     - DOMAIN-SUFFIX,example-proxy.test
+#   providers:
+#     - name: extra_proxy
+#       url: https://example.com/proxy.mrs
+#       behavior: domain
+#       format: mrs
+# direct_rules:
+#   providers:
+#     - name: extra_direct
+#       url: https://example.com/direct.yaml
+#       behavior: classical
+#       format: yaml
+# group_rules:
+#   sports:  # 不存在则自动新建组；media 等已有组不会重复创建
+#     rules:
+#       - DOMAIN-SUFFIX,example-sports.test
+#     providers:
+#       - name: sports_rules
+#         url: https://example.com/sports.mrs
+#         behavior: domain
+#         format: mrs
+# providers 自动绑定该块目标，不必写 policy。名称必须全局唯一；不支持 mrs + classical。
+# 手写规则保持原优先级；快捷 providers 在 WG / SSH 后、自定义规则集末尾、内置规则前。
 
 # 自定义规则集。HTTP provider 默认使用 DIRECT 下载。
 custom_rule_providers:

@@ -739,7 +739,7 @@ rules:
 <% end -%>
 <% group_rules.each do |group, rules| -%>
 <% rules.each do |rule| -%>
-  - <%= rule_for_policy(rule, group) %>
+  - <%= yaml_scalar(rule_for_policy(rule, group)) %>
 <% end -%>
 <% end -%>
 <% wireguard.rules.each do |rule| -%>
@@ -751,7 +751,7 @@ rules:
   - PROCESS-NAME,rsync,DIRECT
   - DST-PORT,22,DIRECT
 <% custom_rule_providers.each do |provider| -%>
-  - <%= custom_rule_provider_rule(provider) %>
+  - <%= yaml_scalar(custom_rule_provider_rule(provider)) %>
 <% end -%>
 
   # 基础规则集：局域网、两类广告源及 Tracker。

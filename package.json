@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build:web": "vite build --config vite.monaco.config.cjs",
-    "test:web": "node --test test/web_form_test.cjs",
+    "test:web": "node --test test/*_test.cjs",
     "test": "npm run test:web"
   },
   "repository": {

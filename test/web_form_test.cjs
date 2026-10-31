@@ -1100,12 +1100,14 @@ test("a URL pasted into proxy_rules is rejected and the form recovers", async ()
   assert.equal(element("#download").disabled, true);
 });
 
-test("group hint and validation follow simple versus detailed mode", async () => {
+test("group hints follow the mode while explicit new targets create groups", async () => {
   const simple = page(false, { group_rules: "telegram: DOMAIN-SUFFIX,t.me" });
   assert.match(simple.element("#group-help").textContent, /chat/);
   await simple.element("#form").onsubmit({ preventDefault() {} });
-  assert.equal(simple.requests.length, 0);
-  assert.match(simple.element("#status").textContent, /分组/);
+  assert.equal(simple.requests.length, 1);
+  const simpleConfig = renderConfig(simple.requests[0].values);
+  assert.equal(simpleConfig['proxy-groups'].find(g => g.name === 'telegram').proxies[0], 'proxy');
+  assert.ok(simpleConfig.rules.includes('RULE-SET,telegram_domain,chat'));
   const detailed = page(false, {
     group_mode: "detailed",
     group_rules: "telegram: DOMAIN-SUFFIX,t.me",
@@ -1115,6 +1117,28 @@ test("group hint and validation follow simple versus detailed mode", async () =>
   assert.deepEqual(detailed.requests[0].values.group_rules, {
     telegram: ["DOMAIN-SUFFIX,t.me"],
   });
+});
+
+test("external provider cards can create a new regional selector", async () => {
+  const { element, requests } = page(false, {
+    rule_name: ['sports_rules'], rule_url: ['https://example.com/sports.mrs'],
+    rule_behavior: ['domain'], rule_format: ['mrs'], rule_policy: ['sports'],
+  });
+  await element('#form').onsubmit({ preventDefault() {} });
+  assert.equal(requests.length, 1);
+  assert.deepEqual(requests[0].values.group_rules.sports, []);
+  const config = renderConfig(requests[0].values);
+  assert.deepEqual(config['proxy-groups'].find(g => g.name === 'sports').proxies,
+    ['proxy', 'hk', 'jp', 'tw', 'sg', 'us', 'kr', 'eu', 'others', 'DIRECT']);
+  assert.ok(config.rules.includes('RULE-SET,sports_rules,sports'));
+});
+
+test("new shortcut groups reject reserved and malformed targets", async () => {
+  for (const name of ['GLOBAL', 'COMPATIBLE', 'failover', 'failover_backup', 'bad,name']) {
+    const { element, requests } = page(false, { group_rules: `${name}: DOMAIN-SUFFIX,example.test` });
+    await element('#form').onsubmit({ preventDefault() {} });
+    assert.equal(requests.length, 0, name);
+  }
 });
 
 test("Apple is offered and accepted as a rule target in both modes", async () => {

@@ -516,6 +516,103 @@ class GenerateMihomoConfigTest < Minitest::Test
     end
   end
 
+  def test_quick_rule_sections_accept_rules_and_providers_with_inferred_policies
+    values = empty_provider_values([]).merge(
+      'proxy_rules' => { 'rules' => ['DOMAIN-SUFFIX,proxy.test'], 'providers' => [
+        { 'name' => 'quick_proxy', 'url' => 'https://example.com/proxy.mrs', 'behavior' => 'domain', 'format' => 'mrs' }
+      ] },
+      'direct_rules' => { 'providers' => [
+        { 'name' => 'quick_direct', 'url' => 'https://example.com/direct.yaml', 'behavior' => 'classical', 'format' => 'yaml' }
+      ] },
+      'group_rules' => { 'sports' => { 'rules' => ['DOMAIN-SUFFIX,sports.test'], 'providers' => [
+        { 'name' => 'sports_ip', 'url' => 'https://example.com/sports.mrs', 'behavior' => 'ipcidr', 'format' => 'mrs', 'rule_options' => ['no-resolve'] }
+      ] }, 'media' => { 'rules' => ['DOMAIN-SUFFIX,media.test'], 'providers' => [
+        { 'name' => 'extra_media', 'url' => 'https://example.com/media.mrs', 'behavior' => 'domain', 'format' => 'mrs' }
+      ] } })
+    %w[simple detailed].each do |mode|
+      with_generated_config(values.merge('group_mode' => mode)) do |config, _path|
+        rules = config.fetch('rules')
+        %w[DOMAIN-SUFFIX,proxy.test,proxy DOMAIN-SUFFIX,sports.test,sports DOMAIN-SUFFIX,media.test,media
+           RULE-SET,quick_proxy,proxy RULE-SET,quick_direct,DIRECT RULE-SET,sports_ip,sports,no-resolve RULE-SET,extra_media,media].each do |rule|
+          assert_includes rules, rule
+        end
+        provider = config.fetch('rule-providers').fetch('sports_ip')
+        assert_equal 'DIRECT', provider.fetch('proxy')
+        assert_equal 86_400, provider.fetch('interval')
+        refute provider.key?('policy')
+        refute provider.key?('rule_options')
+        assert_equal %w[proxy hk jp tw sg us kr eu others DIRECT], proxy_group(config, 'sports').fetch('proxies')
+        assert_equal 'select', proxy_group(config, 'sports').fetch('type')
+        assert_equal 1, config.fetch('proxy-groups').count { |g| g['name'] == 'media' }
+        assert_equal 'proxy', proxy_group(config, 'media').fetch('proxies').first
+        assert_includes proxy_group(config, 'final').fetch('proxies'), 'sports'
+        %w[proxy all_nodes hk media].each { |name| refute_includes proxy_group(config, name).fetch('proxies'), 'sports' }
+        assert_operator rules.index('RULE-SET,quick_proxy,proxy'), :<, rules.index('RULE-SET,ads,ad_block')
+        assert_operator rules.index('DST-PORT,22,DIRECT'), :<, rules.index('RULE-SET,quick_proxy,proxy')
+      end
+    end
+  end
+
+  def test_quick_groups_reuse_existing_custom_wg_and_subscription_groups
+    values = provider_present_values.merge(
+      'wireguard' => [wireguard_entry],
+      'local_proxy_groups' => [{ 'name' => 'mine', 'type' => 'select', 'proxies' => ['DIRECT'] }],
+      'group_providers' => { 'sports' => ['remote_provider'] },
+      'group_rules' => { 'mine' => [], 'sports' => [], 'wg_office' => [], 'china' => [], 'DIRECT' => [] })
+    with_generated_config(values) do |config, path|
+      names = config.fetch('proxy-groups').map { |g| g['name'] }
+      assert_equal names.uniq, names
+      refute_includes names, 'DIRECT'
+      assert_equal ['DIRECT'], proxy_group(config, 'mine').fetch('proxies')
+      assert_equal %w[wg_office_node REJECT], proxy_group(config, 'wg_office').fetch('proxies')
+      assert_equal 'DIRECT', proxy_group(config, 'china').fetch('proxies').first
+      assert_equal 'proxy', proxy_group(config, 'sports').fetch('proxies').first
+      assert_equal ['remote_provider'], proxy_group(config, 'sports').fetch('use')
+      assert_mihomo_valid(path) if mihomo_available?
+    end
+  end
+
+  def test_quick_rule_group_names_are_serialized_as_yaml_scalars
+    name = '媒体 # sports'
+    values = empty_provider_values([]).merge('group_rules' => { name => {
+      'rules' => ['DOMAIN-SUFFIX,example.test'],
+      'providers' => [{ 'name' => 'local_sports', 'path' => './sports.list', 'behavior' => 'domain', 'format' => 'text' }]
+    } })
+    with_generated_config(values) do |config, _path|
+      assert_equal 'proxy', proxy_group(config, name).fetch('proxies').first
+      assert_includes config.fetch('rules'), "DOMAIN-SUFFIX,example.test,#{name}"
+      assert_includes config.fetch('rules'), "RULE-SET,local_sports,#{name}"
+      assert_equal 'file', config.fetch('rule-providers').fetch('local_sports').fetch('type')
+    end
+  end
+
+  def test_invalid_quick_rules_fail_without_overwriting_output
+    provider = { 'name' => 'extra', 'url' => 'https://example.com/rules.mrs', 'behavior' => 'domain', 'format' => 'mrs' }
+    cases = [
+      { 'proxy_rules' => { 'provider' => [] } },
+      { 'proxy_rules' => { 'rules' => 'not-an-array' } },
+      { 'direct_rules' => { 'providers' => ['not-a-mapping'] } },
+      { 'direct_rules' => { 'providers' => [provider.merge('policy' => 'proxy')] } },
+      { 'proxy_rules' => { 'providers' => [provider.merge('behavior' => 'classical')] } },
+      { 'proxy_rules' => { 'providers' => [provider.merge('name' => 'cn')] } },
+      { 'proxy_rules' => { 'providers' => [provider.merge('name' => "x,REJECT")] } },
+      { 'proxy_rules' => { 'providers' => [provider] }, 'direct_rules' => { 'providers' => [provider] } },
+      { 'proxy_rules' => { 'providers' => [provider] }, 'custom_rule_providers' => [provider.merge('policy' => 'proxy')] },
+      *['', 'bad,name', "bad\nname", 'GLOBAL', 'failover', 'handwritten', 'wg_office_node'].map { |name| { 'group_rules' => { name => [] } } }
+    ]
+    cases.each do |extra|
+      Dir.mktmpdir('quick-rules-invalid') do |dir|
+        input, output = File.join(dir, 'values.yaml'), File.join(dir, 'config.yaml')
+        File.write(input, YAML.dump(provider_present_values.merge('wireguard' => [wireguard_entry]).merge(extra)))
+        File.write(output, 'existing')
+        _stdout, stderr, status = Open3.capture3(RbConfig.ruby, GENERATOR, '-v', input, '-t', TEMPLATE, '-o', output)
+        refute status.success?, "accepted invalid quick rules: #{extra.inspect}"
+        refute_empty stderr
+        assert_equal 'existing', File.read(output)
+      end
+    end
+  end
+
   def test_custom_rule_providers_render_provider_entries_and_rules
     values = provider_present_values.merge(
       'local_proxy_groups' => [
