@@ -1142,6 +1142,25 @@ test("Apple is offered and accepted as a rule target in both modes", async () =>
   }
 });
 
+test("download, Taiwan media and global automatic targets work in both modes", async () => {
+  for (const group_mode of ["simple", "detailed"]) {
+    const { element, requests } = page(false, {
+      group_mode,
+      group_rules: "apple_download: DOMAIN-SUFFIX,updates.example\nbahamut: DOMAIN-SUFFIX,media.example\nall_nodes_auto: DOMAIN-SUFFIX,proxy.example",
+    });
+    const targets = element("#policy-targets").children.map(option => option.value);
+    for (const name of ["apple_download", "bahamut", "all_nodes_auto"]) {
+      assert.equal(targets.filter(target => target === name).length, 1);
+    }
+    await element("#form").onsubmit({ preventDefault() {} });
+    assert.equal(requests.length, 1);
+    const config = renderConfig(requests[0].values);
+    assert.ok(config.rules.includes("DOMAIN-SUFFIX,updates.example,apple_download"));
+    assert.ok(config.rules.includes("DOMAIN-SUFFIX,media.example,bahamut"));
+    assert.ok(config.rules.includes("DOMAIN-SUFFIX,proxy.example,all_nodes_auto"));
+  }
+});
+
 test("hidden auto groups have separate help and are valid rule targets", async () => {
   const { element, requests } = page(false, {
     group_rules: "hk_auto: DOMAIN-SUFFIX,example.com",

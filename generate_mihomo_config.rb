@@ -145,15 +145,16 @@ class TemplateContext
   CUSTOM_RULE_PROVIDER_FORMATS = %w[yaml text mrs].freeze
   VALID_GROUP_MODES = %w[simple detailed].freeze
   SIMPLE_GROUP_NAMES = %w[ai game media chat dev cloud download adult china other].freeze
+  ALWAYS_SERVICE_GROUP_NAMES = %w[apple apple_download bahamut].freeze
   DETAILED_GROUP_PARENTS = {
     'openai' => 'ai', 'claude' => 'ai', 'gemini' => 'ai', 'copilot' => 'ai',
     'steam' => 'game', 'epic' => 'game', 'blizzard' => 'game', 'ps' => 'game',
     'xbox' => 'game', 'nintendo' => 'game',
     'youtube' => 'media', 'netflix' => 'media', 'disney' => 'media', 'prime' => 'media',
-    'hbo' => 'media', 'twitch' => 'media', 'spotify' => 'media',
+    'hbo' => 'media', 'twitch' => 'media', 'spotify' => 'media', 'bahamut' => 'tw',
     'telegram' => 'chat', 'discord' => 'chat', 'whatsapp' => 'chat', 'x' => 'chat',
     'github' => 'dev', 'gitlab' => 'dev', 'docker' => 'dev',
-    'google' => 'cloud', 'apple' => 'cloud', 'microsoft' => 'cloud', 'onedrive' => 'cloud'
+    'google' => 'cloud', 'apple' => 'cloud', 'apple_download' => 'china', 'microsoft' => 'cloud', 'onedrive' => 'cloud'
   }.freeze
   DEFAULT_EXTERNAL_UI = './Yacd-meta-gh-pages/'
   DEFAULT_EXTERNAL_UI_URL = 'https://github.com/MetaCubeX/yacd/archive/gh-pages.zip'
@@ -164,7 +165,7 @@ class TemplateContext
     'openai_domain' => 'openai', 'claude_domain' => 'anthropic',
     'gemini_domain' => 'google-gemini', 'copilot_domain' => 'github-copilot',
     'ai_domain' => 'category-ai-!cn',
-    'steam_domain' => 'steam', 'epic_domain' => 'epicgames',
+    'steam_cn_domain' => 'steam@cn', 'steam_domain' => 'steam', 'epic_domain' => 'epicgames',
     'blizzard_domain' => 'blizzard', 'ps_domain' => 'playstation',
     'xbox_domain' => 'xbox', 'nintendo_domain' => 'nintendo', 'games_domain' => 'category-games',
     'youtube_domain' => 'youtube', 'netflix_domain' => 'netflix', 'disney_domain' => 'disney',
@@ -176,7 +177,7 @@ class TemplateContext
     'facebook_domain' => 'facebook', 'instagram_domain' => 'instagram', 'reddit_domain' => 'reddit',
     'github_domain' => 'github', 'gitlab_domain' => 'gitlab', 'docker_domain' => 'docker',
     'google_domain' => 'google', 'google_cn_domain' => 'google-cn',
-    'apple_domain' => 'apple', 'apple_cn_domain' => 'apple-cn',
+    'apple_update_domain' => 'apple-update', 'apple_domain' => 'apple', 'apple_cn_domain' => 'apple-cn',
     'microsoft_domain' => 'microsoft', 'onedrive_domain' => 'onedrive', 'ehentai_domain' => 'ehentai'
   }.freeze
   BUILTIN_IP_RULE_SOURCES = {
@@ -266,7 +267,7 @@ class TemplateContext
     end
     config = Psych.safe_load(output, permitted_classes: [], aliases: true)
     groups = config.fetch('proxy-groups')
-    service_names = group_mode == 'detailed' ? DETAILED_GROUP_PARENTS.keys : ['apple']
+    service_names = group_mode == 'detailed' ? DETAILED_GROUP_PARENTS.keys : ALWAYS_SERVICE_GROUP_NAMES
     routing_names = %w[default proxy final] + SIMPLE_GROUP_NAMES + service_names
     # Capture existing business selectors before adding leaf subscription groups.
     # Never inject into other custom groups, regional pools or node aggregators.

@@ -359,9 +359,12 @@ provider_defaults: &provider_defaults
 
 # 使用订阅节点的策略组默认参数
 provider_use_defaults: &provider_use_defaults
-  # Always keep a local DIRECT-capable path, even when subscriptions are absent.
+  # 有订阅时默认使用纯订阅自动组；本地节点仍可手动选，不自动回落直连。
   type: select
   proxies:
+<% unless provider_names.empty? -%>
+    - all_nodes_auto
+<% end -%>
     - my_proxy
 <% unless provider_names.empty? -%>
   # Use all remote subscriptions configured in values.
@@ -477,7 +480,7 @@ proxies:
 <% simple_groups = TemplateContext::SIMPLE_GROUP_NAMES -%>
 <% detailed_groups = TemplateContext::DETAILED_GROUP_PARENTS -%>
 <% region_groups = %w[hk jp tw sg us kr eu others] -%>
-<% built_in_groups = %w[default proxy my_proxy ad_block all_nodes final domestic other] + simple_groups + detailed_groups.keys + region_groups -%>
+<% built_in_groups = %w[default proxy my_proxy ad_block all_nodes all_nodes_auto final domestic other] + simple_groups + detailed_groups.keys + region_groups -%>
 proxy-groups:
   # 全局入口；保留 default 名称兼容已有配置。
   - name: default
@@ -573,23 +576,15 @@ proxy-groups:
 <% end -%>
 <% end -%>
 
-  # 服务组默认跟随对应父组；Apple 在 simple / detailed 中均独立可选。
+  # Apple、系统下载更新和 Bahamut 在两种模式中都可独立选择。
 <% detailed_groups.each do |name, parent| -%>
-<% next unless group_mode == 'detailed' || name == 'apple' -%>
+<% next unless group_mode == 'detailed' || TemplateContext::ALWAYS_SERVICE_GROUP_NAMES.include?(name) -%>
   - name: <%= name %>
     type: select
     proxies:
-      - <%= parent %>
-      - proxy
-      - hk
-      - jp
-      - tw
-      - sg
-      - us
-      - kr
-      - eu
-      - others
-      - DIRECT
+<% ([parent] + %w[proxy hk jp tw sg us kr eu others DIRECT]).uniq.each do |choice| -%>
+      - <%= choice %>
+<% end -%>
 <% local_proxy_group_names_for(*built_in_groups).each do |custom_name| -%>
       - <%= yaml_scalar(custom_name) %>
 <% end -%>
@@ -601,9 +596,9 @@ proxy-groups:
     proxies:
       - proxy
       - DIRECT
-<% final_service_groups = group_mode == 'detailed' ? detailed_groups.keys : ['apple'] -%>
+<% final_service_groups = group_mode == 'detailed' ? detailed_groups.keys : TemplateContext::ALWAYS_SERVICE_GROUP_NAMES -%>
 <% final_regions = region_groups.flat_map { |region| [region, "#{region}_auto"] } -%>
-<% (%w[default all_nodes my_proxy domestic ad_block] + simple_groups + final_service_groups + final_regions + wireguard.groups.map { |group| group.fetch('name') }).uniq.each do |name| -%>
+<% (%w[default all_nodes all_nodes_auto my_proxy domestic ad_block] + simple_groups + final_service_groups + final_regions + wireguard.groups.map { |group| group.fetch('name') }).uniq.each do |name| -%>
       - <%= yaml_scalar(name) %>
 <% end -%>
 <% local_proxy_group_names_for('final').each do |name| -%>
@@ -619,6 +614,15 @@ proxy-groups:
   # 所有订阅节点及手写节点入口，保留手动选择。
   - name: all_nodes
     <<: *provider_use_defaults
+<% unless provider_names.empty? -%>
+    default-selected: all_nodes_auto
+<% end -%>
+
+  # 默认代理出口：只测速订阅节点，排除直连/拒绝占位项，不混入 my_proxy。
+  - name: all_nodes_auto
+    <<: *regional_url_test_defaults
+    hidden: true
+    exclude-type: direct|reject|reject-drop|pass|compatible
 
   # 地区组默认选隐藏 auto，也可手动选本地区节点；两层均不包含 my_proxy / DIRECT。
   - name: hk
@@ -783,6 +787,8 @@ rules:
 
   - RULE-SET,ai_domain,ai
 
+  # Steam 国内子集先于平台总集，避免国内下载被 game/steam 抢先代理。
+  - RULE-SET,steam_cn_domain,china
   # Game
   - RULE-SET,steam_domain,<%= route.call('game', 'steam') %>
   - RULE-SET,epic_domain,<%= route.call('game', 'epic') %>
@@ -800,10 +806,10 @@ rules:
   - RULE-SET,hbo_domain,<%= route.call('media', 'hbo') %>
   - RULE-SET,twitch_domain,<%= route.call('media', 'twitch') %>
   - RULE-SET,spotify_domain,<%= route.call('media', 'spotify') %>
-  # 哔哩哔哩国内站点归入 china，避免国内媒体被 media 默认代理；国际站和巴哈仍走 media。
+  # B 站国内走 china、国际站走 media；巴哈使用独立的台湾出口组。
   - RULE-SET,bilibili_domain,china
   - RULE-SET,biliintl_domain,media
-  - RULE-SET,bahamut_domain,media
+  - RULE-SET,bahamut_domain,bahamut
 
   # Chat
   - RULE-SET,telegram_domain,<%= route.call('chat', 'telegram') %>
@@ -824,6 +830,8 @@ rules:
   - RULE-SET,docker_domain,<%= route.call('dev', 'docker') %>
   - RULE-SET,google_domain,<%= route.call('cloud', 'google') %>
   - RULE-SET,google_cn_domain,<%= route.call('cloud', 'google') %>
+  # 仅系统下载/更新子集分流，其他 Apple 服务保留原有独立选择。
+  - RULE-SET,apple_update_domain,apple_download
   - RULE-SET,apple_domain,apple
   - RULE-SET,apple_cn_domain,apple
   - RULE-SET,onedrive_domain,<%= route.call('cloud', 'onedrive') %>

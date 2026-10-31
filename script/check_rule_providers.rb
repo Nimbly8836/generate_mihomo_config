@@ -20,7 +20,9 @@ DOMAIN_SAMPLES = {
   'telegram_domain' => %w[t.me telegram.org],
   'netflix_domain' => %w[netflix.com],
   'google_domain' => %w[google.com],
-  'github_domain' => %w[github.com]
+  'github_domain' => %w[github.com],
+  'steam_cn_domain' => %w[dl.steam.clngaa.com st.dl.bscstorage.net],
+  'apple_update_domain' => %w[swcdn.apple.com updates.cdn-apple.com]
 }.freeze
 IP_SAMPLES = {
   'telegram_ip' => %w[149.154.167.50 91.108.56.100],

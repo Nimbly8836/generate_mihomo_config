@@ -523,10 +523,10 @@ CLI、Web 的 WG 表单 / 完整 YAML 编辑模式和 REST API 的 `values` 输�
 
 ### simple
 
-使用简单分类组，并保留独立的 Apple 分组：
+使用简单分类组，并保留独立的 `apple`、`apple_download` 和 `bahamut` 分组：
 
 ```text
-proxy → region / all_nodes → node
+proxy → all_nodes → all_nodes_auto → 订阅节点（有订阅时默认）
 ai → proxy
 game → proxy
 media → proxy
@@ -534,6 +534,8 @@ chat → proxy
 dev → proxy
 cloud → proxy
 apple → cloud → proxy
+apple_download → china → DIRECT
+bahamut → tw → tw_auto → 台湾订阅节点
 download → proxy
 adult → proxy
 china → DIRECT
@@ -551,7 +553,8 @@ claude → ai → proxy → ...
 steam → game → proxy → ...
 netflix → media → proxy → ...
 bilibili（国内）→ china → DIRECT
-biliintl / bahamut → media → proxy → ...
+biliintl → media → proxy → ...
+bahamut → tw → tw_auto → 台湾订阅节点
 github → dev → proxy → ...
 ```
 
@@ -566,6 +569,14 @@ github → dev → proxy → ...
 - Dev：`github`、`gitlab`、`docker`
 - Cloud：`google`、`apple`、`microsoft`、`onedrive`（`apple` 在 simple 模式中也保留）
 
+### 默认代理出口与升级检查
+
+有订阅时，`all_nodes` 的首选及 `default-selected` 均为隐藏测速组 `all_nodes_auto`，只测速订阅节点，并排除 direct/reject/pass 等占位节点。空订阅池使用 `REJECT`，不会自动改走 `my_proxy` / `DIRECT`。`all_nodes` 仍可手动选具体订阅节点或 `my_proxy`。该自动组可以跨地区切换；对地区有要求的服务应选对应地区组。
+
+没有订阅时保留原来的 `all_nodes → my_proxy` 行为：有手写节点就使用手写节点，两者都没有则直连。自动组此时只有 `REJECT`，不作为默认出口。
+
+更新代码不会自动修改已生成文件或已发布订阅。请重新生成并重载；Web 已发布配置需要“编辑源配置 → 生成 → 更新原订阅”，客户端再刷新订阅。`profile.store-selected` 会恢复旧选择，请确认 `proxy = all_nodes`、`all_nodes = all_nodes_auto`；主动使用 `failover` 或手选地区的用户可保持自己的选择。不要为切换默认值清空个人配置。
+
 ### final 独立兜底选择
 
 未匹配规则的流量仍由 `MATCH,final` 处理。`final` 默认选择 `proxy`，但可以独立改选 `DIRECT`、地区组、`all_nodes`、`my_proxy`、`default`、简单分类组或 `apple`；detailed 模式还可选择 `openai`、`netflix` 等已生成的详细服务组，不再仅有 `proxy` / `DIRECT` 两个选项。
@@ -574,7 +585,14 @@ github → dev → proxy → ...
 
 ### Apple 独立分组
 
-`apple` 在 simple / detailed 两种模式中均为可见的 `select` 组，Apple 和 Apple 中国区规则集（`apple_domain`、`apple_cn_domain`）均指向它。默认跟随 `cloud`，保持原有出口行为；也可单独选择 `DIRECT`、`proxy` 或地区组。例如选择 `hk` 后，默认由 `hk_auto` 自动选择香港节点。
+`apple` 在 simple / detailed 两种模式中均为可见的 `select` 组，Apple 和 Apple 中国区规则集（`apple_domain`、`apple_cn_domain`）均指向它，默认跟随 `cloud`。系统下载/更新子集 `apple-update` 会更早匹配到独立的 `apple_download`，默认跟随 `china`（通常为 DIRECT），也可自行改为代理。不将整个 `apple-cn` 或所有 App Store/Apple Music 流量强制直连。
+
+### 国内下载与地区媒体
+
+- `steam_cn_domain` 使用上游 `steam@cn`，先于 `steam_domain` 匹配，进入 `china`。其他 Steam 流量仍交给 `game`（simple）或 `steam`（detailed）；不强制把全球 `steamcontent.com` 直连。
+- `bahamut` 在两种模式中都独立可选，默认 `tw → tw_auto`。没有台湾节点时遵循地区组的拒绝连接策略，不自动借用其他地区或直连。测速成功不保证解锁，必要时在面板手选可用台湾节点。
+- Bilibili 国内仍走 `china`，Bilibili 国际仍走 `media`。
+- 上述例外位于内置广告规则之后，原有手写规则、WG 内网规则和自定义规则集仍有更高优先级。
 
 ## 地区组
 
@@ -605,7 +623,7 @@ others
 
 ## 规则来源
 
-默认提供 **51 个独立更新的规则提供者**，不是把少量手写域名当作全部覆盖。
+默认提供 **53 个独立更新的规则提供者**，不是把少量手写域名当作全部覆盖。
 服务规则主要来自 [MetaCubeX/meta-rules-dat](https://github.com/MetaCubeX/meta-rules-dat)，广告另保留旧版的
 [217heidai/adblockfilters](https://github.com/217heidai/adblockfilters)。
 
@@ -613,10 +631,10 @@ others
 | --- | --- | --- |
 | 基础域名 | `ads`、`private`、`cn`、`non_cn`、`tracker` | 保留原有入口 |
 | AI | `openai_domain`、`claude_domain`、`gemini_domain`、`copilot_domain`、`ai_domain` | 专用集优先；综合集还覆盖 Cursor、Perplexity 等 |
-| 游戏 | `steam_domain`、`epic_domain`、`blizzard_domain`、`ps_domain`、`xbox_domain`、`nintendo_domain`、`games_domain` | 平台集 + 游戏综合集 |
+| 游戏 | `steam_cn_domain`、`steam_domain`、`epic_domain`、`blizzard_domain`、`ps_domain`、`xbox_domain`、`nintendo_domain`、`games_domain` | 平台集 + 游戏综合集 |
 | 媒体 | `youtube_domain`、`netflix_domain`、`disney_domain`、`prime_domain`、`hbo_domain`、`twitch_domain`、`spotify_domain`、`bilibili_domain`、`biliintl_domain`、`bahamut_domain` | 保留国内/海外媒体的匹配覆盖 |
 | 通信 | `telegram_domain`、`discord_domain`、`whatsapp_domain`、`twitter_domain`、`facebook_domain`、`instagram_domain`、`reddit_domain` | 按 simple/detailed 路由到父组或服务组 |
-| 开发/云服务 | `github_domain`、`gitlab_domain`、`docker_domain`、`google_domain`、`google_cn_domain`、`apple_domain`、`apple_cn_domain`、`microsoft_domain`、`onedrive_domain` | OneDrive 先于 Microsoft；AI 先于 Google/GitHub |
+| 开发/云服务 | `github_domain`、`gitlab_domain`、`docker_domain`、`google_domain`、`google_cn_domain`、`apple_update_domain`、`apple_domain`、`apple_cn_domain`、`microsoft_domain`、`onedrive_domain` | OneDrive 先于 Microsoft；AI 先于 Google/GitHub |
 | 成人内容 | `ehentai_domain` | 路由到 `adult` |
 | IP | `private_ip`、`google_ip`、`netflix_ip`、`telegram_ip`、`twitter_ip`、`cn_ip` | `behavior: ipcidr`，恢复旧版服务 IP 覆盖 |
 | 广告聚合 | `adblock_mihomo` | 217heidai 同系列 MRS 版，与 `ads` 一起进入 `ad_block` |

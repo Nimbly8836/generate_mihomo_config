@@ -370,9 +370,9 @@
     }, true);
     let config = '', mode = localStorage.getItem('mihomo-mode') || 'form';
     const regions = ['hk', 'jp', 'tw', 'sg', 'us', 'kr', 'eu', 'others'];
-    const baseGroups = ['default', 'proxy', 'my_proxy', 'ad_block', 'ai', 'game', 'media', 'chat', 'dev', 'cloud', 'apple', 'download', 'adult', 'china', 'other', 'final', 'domestic', 'all_nodes', ...regions];
+    const baseGroups = ['default', 'proxy', 'my_proxy', 'ad_block', 'ai', 'game', 'media', 'chat', 'dev', 'cloud', 'apple', 'apple_download', 'bahamut', 'download', 'adult', 'china', 'other', 'final', 'domestic', 'all_nodes', ...regions];
     const detailedGroups = ['openai', 'claude', 'gemini', 'copilot', 'steam', 'epic', 'blizzard', 'ps', 'xbox', 'nintendo', 'youtube', 'netflix', 'disney', 'prime', 'hbo', 'twitch', 'spotify', 'telegram', 'discord', 'whatsapp', 'x', 'github', 'gitlab', 'docker', 'google', 'microsoft', 'onedrive'];
-    const autoGroups = regions.map(region => `${region}_auto`);
+    const autoGroups = ['all_nodes_auto', ...regions.map(region => `${region}_auto`)];
     const lines = text => String(text || '').split('\n').map(x => x.trim()).filter(Boolean);
     const textAt = (data, key, index) => String(data.getAll(key)[index] || '').trim();
     const validName = name => /^[a-z][a-z0-9_-]*$/.test(name);

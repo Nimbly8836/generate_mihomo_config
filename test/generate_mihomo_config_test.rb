@@ -35,7 +35,9 @@ class GenerateMihomoConfigTest < Minitest::Test
     adult
     china
     other
+    bahamut
     apple
+    apple_download
     final
   ].freeze
   MIHOMO_VALIDATION_TIMEOUT = 120
@@ -371,7 +373,7 @@ class GenerateMihomoConfigTest < Minitest::Test
           group_names = config.fetch('proxy-groups').map { |group| group.fetch('name') }
           expected = %w[hk jp tw sg us kr eu others].flat_map { |name| [name, "#{name}_auto"] }
           assert_equal expected, group_names.last(expected.length)
-          assert_equal ['my_proxy'], proxy_group(config, 'all_nodes').fetch('proxies')
+          assert_equal %w[all_nodes_auto my_proxy], proxy_group(config, 'all_nodes').fetch('proxies')
 
           REGION_GROUP_NAMES.each do |name|
             automatic = assert_region_selector(config, name)
@@ -925,8 +927,59 @@ class GenerateMihomoConfigTest < Minitest::Test
       assert_includes rules, 'RULE-SET,bilibili_domain,china'
       refute_includes rules, 'RULE-SET,bilibili_domain,media'
       assert_includes rules, 'RULE-SET,biliintl_domain,media'
-      assert_includes rules, 'RULE-SET,bahamut_domain,media'
+      assert_includes rules, 'RULE-SET,bahamut_domain,bahamut'
       assert_operator rules.index('RULE-SET,bilibili_domain,china'), :<, rules.index('RULE-SET,cn,china')
+    end
+  end
+
+  def test_subscription_default_exit_does_not_select_the_direct_capable_local_group
+    %w[simple detailed].each do |mode|
+      [[], [handwritten_proxy]].each do |locals|
+        with_generated_config(provider_present_values.merge('group_mode' => mode, 'local_proxies' => locals)) do |config, _path|
+          assert_equal 'all_nodes', proxy_group(config, 'proxy').fetch('proxies').first
+          all = proxy_group(config, 'all_nodes')
+          assert_equal 'all_nodes_auto', all.fetch('default-selected')
+          assert_equal 'all_nodes_auto', all.fetch('proxies').first
+          auto = proxy_group(config, 'all_nodes_auto')
+          assert_equal 'url-test', auto.fetch('type')
+          assert_equal ['remote_provider'], auto.fetch('use')
+          assert_equal 'REJECT', auto.fetch('empty-fallback')
+          assert_equal true, auto.fetch('hidden')
+          refute auto.key?('proxies')
+          %w[direct reject reject-drop pass compatible].each { |type| assert_includes auto.fetch('exclude-type').split('|'), type }
+          assert_includes proxy_group(config, 'final').fetch('proxies'), 'all_nodes_auto'
+        end
+      end
+      with_generated_config(empty_provider_values([]).merge('group_mode' => mode)) do |config, _path|
+        assert_equal ['my_proxy'], proxy_group(config, 'all_nodes').fetch('proxies')
+        assert_equal ['REJECT'], proxy_group(config, 'all_nodes_auto').fetch('proxies')
+      end
+    end
+  end
+
+  def test_domestic_download_exceptions_and_taiwan_media_precede_broad_rules_in_both_modes
+    %w[simple detailed].each do |mode|
+      with_generated_config(provider_present_values.merge('group_mode' => mode)) do |config, path|
+        rules = config.fetch('rules')
+        providers = config.fetch('rule-providers')
+        steam = "RULE-SET,steam_domain,#{mode == 'simple' ? 'game' : 'steam'}"
+        assert_operator rules.index('RULE-SET,steam_cn_domain,china'), :<, rules.index(steam)
+        assert_operator rules.index('RULE-SET,ads,ad_block'), :<, rules.index('RULE-SET,steam_cn_domain,china')
+        assert providers.fetch('steam_cn_domain').fetch('url').end_with?('/steam@cn.mrs')
+        assert providers.fetch('apple_update_domain').fetch('url').end_with?('/apple-update.mrs')
+        %w[apple_domain apple_cn_domain].each do |provider|
+          assert_operator rules.index('RULE-SET,apple_update_domain,apple_download'), :<, rules.index("RULE-SET,#{provider},apple")
+        end
+        assert_equal 'china', proxy_group(config, 'apple_download').fetch('proxies').first
+        assert_equal 'cloud', proxy_group(config, 'apple').fetch('proxies').first
+        assert_equal 'DIRECT', proxy_group(config, 'china').fetch('proxies').first
+        assert_includes rules, 'RULE-SET,bahamut_domain,bahamut'
+        assert_equal 'tw', proxy_group(config, 'bahamut').fetch('proxies').first
+        assert_equal 1, proxy_group(config, 'bahamut').fetch('proxies').count('tw')
+        assert_equal 'tw_auto', proxy_group(config, 'tw').fetch('default-selected')
+        %w[apple_download bahamut].each { |name| assert_includes proxy_group(config, 'final').fetch('proxies'), name }
+        assert_mihomo_valid(path) if mihomo_available?
+      end
     end
   end
 
