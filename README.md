@@ -44,7 +44,38 @@ HOST=127.0.0.1 PORT=4567 ruby web_server.rb
 
 表单的“高级配置 → 实验功能”中提供 **启用 IPv6** 和 **启用 IP4P（实验功能）** 开关，默认都不勾选。
 启用 IPv6 会同时生成 `ipv6: true`、`dns.ipv6: true` 和 `tun.inet6: true`；需要核心、网络和 DNS 上游都支持 IPv6。
-启用 IP4P 后生成 `experimental.dialer-ip4p-convert: true`，不自动开启 IPv6 或修改 WG 节点；需要运行配置的 Mihomo 核心支持这个字段。两个开关只影响表单模式，YAML 模式仍以编辑内容为准。
+启用 IP4P 后生成 `experimental.dialer-ip4p-convert: true`，不自动开启 IPv6 或修改 WG 节点；需要运行配置的 Mihomo 核心支持这个字段。这些开关只影响表单模式，YAML 模式仍以编辑内容为准。
+
+### 保留 IPv6，仅让 AI 域名解析 IPv4
+
+“高级配置 → 实验功能”新增 **AI 域名仅解析 IPv4**（默认关闭），可以和“启用 IPv6”同时勾选。YAML 写法如下，已有 `config_overrides` 时合并字段，不要重复键：
+
+```yaml
+ai_ipv4_only: true
+config_overrides:
+  ipv6: true
+  dns:
+    ipv6: true
+```
+
+此选项复用 `openai_domain / claude_domain / gemini_domain / copilot_domain / ai_domain` 五个域名规则集：
+
+- 用 `nameserver-policy` 为匹配域名指定带 `disable-ipv6=true` 的 DoH，过滤 AAAA；同时设置 `disable-qtype-65=true`，过滤可能包含 `ipv6hint` 的 HTTPS DNS 记录（不是禁用 HTTPS 网站）。使用与模板默认 DNS 相同的 doh.pub / dns.alidns.com，不额外引入境外 DNS 可达性依赖。
+- 将同一组 AI 域名加入 blacklist 型 `fake-ip-filter`，使它们走真实 IPv4 解析。仅添加 nameserver-policy 不够：IPv6 fake-IP 合成可能绕过上游 AAAA 过滤。
+- 普通域名仍遵循原有 DNS 设置。模板提供 `fake-ip-range6: fc00::/18`，在 `dns.ipv6: true` 时支持普通域名的 IPv6 fake-IP；默认关闭 IPv6 的行为不变。
+- 可与 `dns_split_cn_foreign` 和 basic/compat 过滤列表共用，不改 AI 分流策略或代理组选择。开关自身不会自动开启全局 IPv6。
+
+**边界：这是选择性 DNS 解析，不是绝对防漏。** 需要客户端请求经过 Mihomo DNS，AI 规则集成功加载且覆盖目标域名；应用自带 DoH、缓存 IPv6、直连 IPv6 字面地址、未接管的系统 IPv6 流量不受它约束。代理服务器收到域名后仍可能自行选择 IPv6 出站，本机设置不能保证网站最终看到 IPv4。AI 仍应选择经验证可用的稳定出口。
+
+`config_overrides` 保持最高优先级：覆盖相关 `nameserver-policy`、整个 `fake-ip-filter`，或改用 whitelist/rule 型过滤模式，都需要自行保留/适配 AI 排除策略。更换配置后应清理客户端 DNS 缓存并重连应用，不能指望已建立的连接立刻换地址。
+
+需要支持上述参数的 Mihomo 核心，已在 1.19.33 验证。可运行纯本地测试（需要 Python 3.10+、Ruby、mihomo；不使用真实订阅，不启用 TUN）：
+
+```bash
+python3 script/check_ai_dns_runtime.py
+```
+
+它实际查询生成配置的 DNS，验证五个 AI 规则集的 A/AAAA/HTTPS 记录、普通域名 IPv6，以及开关关闭的对照行为。参考：[Mihomo DNS 参数](https://wiki.metacubex.one/config/dns/)。
 
 ### 把订阅中的节点加入分组
 

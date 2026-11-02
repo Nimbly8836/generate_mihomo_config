@@ -216,6 +216,8 @@
         <header class="section-header"><h2>实验功能</h2></header>
         <label class="checkbox"><input name="enable_ipv6" type="checkbox" aria-describedby="enable-ipv6-hint">启用 IPv6</label>
         <p id="enable-ipv6-hint" class="hint">默认禁用。启用后会同时打开 Mihomo IPv6、DNS IPv6 和 TUN IPv6（inet6）；需要核心、网络和 DNS 上游都支持 IPv6。</p>
+        <label class="checkbox"><input name="ai_ipv4_only" type="checkbox" aria-describedby="ai-ipv4-hint">AI 域名仅解析 IPv4</label>
+        <p id="ai-ipv4-hint" class="hint">默认关闭，可与“启用 IPv6”同时开启。仅过滤经 Mihomo DNS 查询的 AI 域名 AAAA/HTTPS 记录，普通域名仍可使用 IPv6；不控制机场服务器的 IPv6 出站，也不阻止绕过 Mihomo 的连接。</p>
         <label class="checkbox"><input name="ip4p" type="checkbox" aria-describedby="ip4p-hint">启用 IP4P（实验功能）</label>
         <p id="ip4p-hint" class="hint">仅影响表单模式。需要支持 dialer-ip4p-convert 的 Mihomo 核心；不会自动开启 IPv6 或修改 WG 节点。YAML 模式请使用 config_overrides 配置。</p>
       </section>
@@ -630,6 +632,7 @@
         group_providers: readGroupProviders(data),
         wireguard: readWireguard(data), custom_rule_providers: readRuleProviders(data, targets),
       };
+      if (data.get('ai_ipv4_only') === 'on') values.ai_ipv4_only = true;
       if (data.get('failover_enabled') === 'on') {
         const primary = [...new Set(data.getAll('failover_primary'))], backup = [...new Set(data.getAll('failover_backup'))];
         const available = subscriptionNames(data);

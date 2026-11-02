@@ -110,6 +110,8 @@ dns:
   enhanced-mode: fake-ip
   # fake-ip 地址池范围
   fake-ip-range: 198.18.0.1/16
+  # 仅 dns.ipv6 开启时返回 IPv6 fake-IP；不改变默认禁用 IPv6 的行为。
+  fake-ip-range6: fc00::/18
 
   # 仅用于解析下方 DoH/DoT 服务器自身域名的传统 DNS
   default-nameserver:
@@ -127,9 +129,11 @@ dns:
   direct-nameserver:
     - https://doh.pub/dns-query
     - https://dns.alidns.com/dns-query
-<% if dns_split_cn_foreign -%>
-  # 是否让 direct-nameserver 遵循 nameserver-policy
+<% if dns_split_cn_foreign || ai_ipv4_only -%>
+  # 直连二次解析也遵循分域名策略；普通域名仍使用原有 DNS。
   direct-nameserver-follow-policy: true
+<% end -%>
+<% if dns_split_cn_foreign -%>
 
   # 回退 DNS，优先使用境外解析器提高抗污染能力
   fallback:
@@ -137,9 +141,18 @@ dns:
     - https://dns.google/dns-query
     - tls://8.8.4.4
     - tls://1.0.0.1
+<% end -%>
+<% if dns_split_cn_foreign || ai_ipv4_only -%>
 
-  # 开启后按国内外域名区分 DNS
   nameserver-policy:
+<% if ai_ipv4_only -%>
+    # 仅 AI 域名过滤 AAAA 和可能带 ipv6hint 的 HTTPS 记录；不关闭全局 IPv6。
+    # 使用与默认 nameserver 相同的 DoH，避免为此引入新的 DNS 出口依赖。
+    "rule-set:openai_domain,claude_domain,gemini_domain,copilot_domain,ai_domain":
+      - "https://doh.pub/dns-query#disable-ipv6=true&disable-qtype-65=true"
+      - "https://dns.alidns.com/dns-query#disable-ipv6=true&disable-qtype-65=true"
+<% end -%>
+<% if dns_split_cn_foreign -%>
     # 内网和中国域名优先走国内 DNS
     "geosite:private,cn":
       - https://doh.pub/dns-query
@@ -150,6 +163,9 @@ dns:
       - 223.5.5.5
     "+.arpa":
       - 223.5.5.5
+<% end -%>
+<% end -%>
+<% if dns_split_cn_foreign -%>
 
   # 满足条件时优先采用 fallback 结果
   fallback-filter:
@@ -175,6 +191,10 @@ dns:
   # 返回真实 IP 的 DNS 兼容例外，不决定流量是否直连。
   # basic 为精简默认；compat 保留历史音乐/游戏等完整例外。
   fake-ip-filter:
+<% if ai_ipv4_only -%>
+    # AI 使用真实 IPv4 解析，防止 IPv6 fake-IP 绕过 nameserver-policy 的 AAAA 过滤。
+    - "rule-set:openai_domain,claude_domain,gemini_domain,copilot_domain,ai_domain"
+<% end -%>
 <% if fake_ip_filter_mode == 'compat' -%>
     - "*.lan"
     - "*.localdomain"

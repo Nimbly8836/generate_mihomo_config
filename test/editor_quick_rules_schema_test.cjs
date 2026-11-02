@@ -14,6 +14,12 @@ const schema = JSON.parse(JSON.stringify(vm.runInNewContext(`(${match[1]})`, {
 const quick = schema.definitions.quickRules;
 const provider = schema.definitions.quickRuleProvider;
 
+test('AI IPv4 DNS option is a documented opt-in boolean', () => {
+  assert.equal(schema.properties.ai_ipv4_only.type, 'boolean');
+  assert.equal(schema.properties.ai_ipv4_only.default, false);
+  assert.match(schema.properties.ai_ipv4_only.description, /DNS/);
+});
+
 // No validator dependency is added. These assertions inspect schema structure,
 // not arbitrary instance validity; the optional Ajv test below validates instances.
 test('all quick-rule sections reference the shared legacy/new union', () => {

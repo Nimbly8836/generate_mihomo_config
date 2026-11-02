@@ -1166,6 +1166,73 @@ class GenerateMihomoConfigTest < Minitest::Test
     end
   end
 
+  def test_ai_ipv4_dns_is_opt_in_and_does_not_disable_global_ipv6
+    key = 'rule-set:openai_domain,claude_domain,gemini_domain,copilot_domain,ai_domain'
+    [false, true].each do |split|
+      %w[basic compat].each do |filter_mode|
+        values = empty_provider_values([]).merge('web_secret' => 'test-only', 'dns_split_cn_foreign' => split,
+          'fake_ip_filter_mode' => filter_mode, 'config_overrides' => { 'ipv6' => true, 'dns' => { 'ipv6' => true } })
+        baseline = nil
+        with_generated_config(values) do |config, _path|
+          baseline = config
+          refute config.fetch('dns').fetch('nameserver-policy', {}).key?(key)
+          refute_includes config.fetch('dns').fetch('fake-ip-filter'), key
+        end
+        with_generated_config(values.merge('ai_ipv4_only' => false)) { |config, _path| assert_equal baseline, config }
+        with_generated_config(values.merge('ai_ipv4_only' => true)) do |config, path|
+          dns = config.fetch('dns')
+          assert_equal true, config.fetch('ipv6')
+          assert_equal true, dns.fetch('ipv6')
+          assert_equal 'fc00::/18', dns.fetch('fake-ip-range6')
+          assert_equal baseline.fetch('dns').fetch('nameserver'), dns.fetch('nameserver')
+          assert_equal true, dns.fetch('direct-nameserver-follow-policy')
+          assert_includes dns.fetch('fake-ip-filter'), key
+          assert_equal baseline.fetch('dns').fetch('fake-ip-filter'), dns.fetch('fake-ip-filter') - [key]
+          dns.fetch('nameserver-policy').fetch(key).each do |url|
+            assert_includes url, '#disable-ipv6=true&disable-qtype-65=true'
+          end
+          key.delete_prefix('rule-set:').split(',').each do |name|
+            assert_equal 'domain', config.fetch('rule-providers').fetch(name).fetch('behavior')
+          end
+          if split
+            assert dns.fetch('nameserver-policy').key?('geosite:private,cn')
+            assert_equal baseline.fetch('dns').fetch('fallback'), dns.fetch('fallback')
+          else
+            assert_equal [key], dns.fetch('nameserver-policy').keys
+            refute dns.key?('fallback')
+          end
+          assert_equal baseline.fetch('rules'), config.fetch('rules')
+          assert_equal baseline.fetch('proxy-groups'), config.fetch('proxy-groups')
+          assert_mihomo_valid(path) if mihomo_available?
+        end
+      end
+    end
+  end
+
+  def test_ai_ipv4_flag_rejects_non_booleans_without_overwriting_output
+    ['false', 'true', 0, [], {}, nil].each do |value|
+      Dir.mktmpdir('invalid-ai-ipv4') do |dir|
+        input, output = File.join(dir, 'values.yaml'), File.join(dir, 'config.yaml')
+        File.write(input, YAML.dump('ai_ipv4_only' => value))
+        File.write(output, 'keep-existing')
+        _stdout, stderr, status = Open3.capture3(RbConfig.ruby, GENERATOR, '-v', input, '-t', TEMPLATE, '-o', output)
+        refute status.success?
+        assert_includes stderr, 'ai_ipv4_only must be true or false'
+        assert_equal 'keep-existing', File.read(output)
+      end
+    end
+  end
+
+  def test_ai_ipv4_config_overrides_still_have_final_priority
+    key = 'rule-set:openai_domain,claude_domain,gemini_domain,copilot_domain,ai_domain'
+    values = empty_provider_values([]).merge('ai_ipv4_only' => true,
+      'config_overrides' => { 'dns' => { 'nameserver-policy' => { key => ['1.1.1.1'] }, 'fake-ip-filter' => [] } })
+    with_generated_config(values) do |config, _path|
+      assert_equal ['1.1.1.1'], config.fetch('dns').fetch('nameserver-policy').fetch(key)
+      assert_empty config.fetch('dns').fetch('fake-ip-filter')
+    end
+  end
+
   def test_final_config_overrides_merge_ipv6_and_experimental_settings
     values = provider_present_values.merge('config_overrides' => {
                                              'ipv6' => true,

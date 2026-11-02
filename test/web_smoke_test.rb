@@ -181,6 +181,19 @@ class WebSmokeTest < Minitest::Test
     assert_equal 'DIRECT', config.fetch('rule-providers').fetch('sports_rules').fetch('proxy')
   end
 
+  def test_ai_ipv4_dns_preserves_ipv6_via_generate_api
+    values = { 'ai_ipv4_only' => true, 'web_secret' => 'test-only',
+               'config_overrides' => { 'ipv6' => true, 'dns' => { 'ipv6' => true } } }
+    response = request('/api/generate', 'values' => values)
+    assert_equal '200', response.code
+    config = Psych.safe_load(JSON.parse(response.body).fetch('config'), aliases: true)
+    key = 'rule-set:openai_domain,claude_domain,gemini_domain,copilot_domain,ai_domain'
+    assert_equal true, config.fetch('ipv6')
+    assert_equal true, config.fetch('dns').fetch('ipv6')
+    assert_includes config.fetch('dns').fetch('fake-ip-filter'), key
+    assert_includes config.fetch('dns').fetch('nameserver-policy').fetch(key).first, 'disable-ipv6=true'
+  end
+
   def test_yaml_input_retains_explicit_false
     yaml = Psych.dump('proxy_providers' => [], 'local_proxies' => [], 'web_secret' => 'smoke-test-only',
                       'config_overrides' => { 'experimental' => { 'dialer-ip4p-convert' => false } })

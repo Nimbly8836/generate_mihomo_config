@@ -6,6 +6,9 @@ port: 7890
 web_port: 9090
 tun_device: utun-mihomo
 dns_split_cn_foreign: false
+# 可与 IPv6 同时开启：仅 AI 域名使用真实 IPv4，过滤 AAAA/HTTPS，普通域名不受影响。
+# 必须经过 Mihomo DNS 且 AI 规则集加载成功；不控制机场服务器的 IPv6 出站。
+ai_ipv4_only: false
 web_secret: change-me-before-use
 
 # simple 或 detailed

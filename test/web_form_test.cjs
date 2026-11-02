@@ -972,6 +972,34 @@ test("unchecked IPv6 leaves the template defaults untouched", async () => {
   assert.equal(requests[0].values.config_overrides, undefined);
 });
 
+test("AI IPv4 DNS is opt-in, advanced, and independent of global IPv6 and IP4P", async () => {
+  const advanced = html.slice(html.indexOf('<details id="advanced-settings"'), html.indexOf('<div id="file-editor"'));
+  assert.match(advanced, /name="ai_ipv4_only" type="checkbox"/);
+  assert.doesNotMatch(html.match(/<input name="ai_ipv4_only"[^>]*>/)[0], /\bchecked\b/);
+  const off = page(false);
+  await off.element('#form').onsubmit({ preventDefault() {} });
+  assert.equal(off.requests[0].values.ai_ipv4_only, undefined);
+  for (const ipv6 of [false, true]) {
+    const { element, requests } = page(true, { ai_ipv4_only: 'on', enable_ipv6: ipv6 ? 'on' : '' });
+    await element('#form').onsubmit({ preventDefault() {} });
+    assert.equal(requests[0].values.ai_ipv4_only, true);
+    const config = renderConfig(requests[0].values);
+    assert.equal(config.ipv6, ipv6);
+    assert.equal(config.dns.ipv6, ipv6);
+    assert.equal(config.experimental['dialer-ip4p-convert'], true);
+    assert.ok(config.dns['fake-ip-filter'].some(value => value.startsWith('rule-set:openai_domain')));
+  }
+});
+
+test("AI DNS checkbox never replaces YAML mode settings", async () => {
+  const { element, requests } = page(false, { ai_ipv4_only: 'on' });
+  const yaml = 'ai_ipv4_only: false\n';
+  element('#file-values').value = yaml;
+  element('#file-mode').onclick();
+  await element('#form').onsubmit({ preventDefault() {} });
+  assert.equal(requests[0].values, yaml);
+});
+
 test("checked IP4P is submitted as a final configuration override", async () => {
   const { element, requests } = page(true);
   await element("#form").onsubmit({ preventDefault() {} });

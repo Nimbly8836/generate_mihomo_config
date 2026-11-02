@@ -228,6 +228,15 @@ class TemplateContext
     (@values['group_mode'] || @values['group-mode'] || 'simple').to_s
   end
 
+  def ai_ipv4_only
+    value = @values.fetch('ai_ipv4_only', false)
+    unless value == true || value == false
+      warn 'ai_ipv4_only must be true or false'
+      exit 1
+    end
+    value
+  end
+
   def fake_ip_filter_mode
     mode = @values.fetch('fake_ip_filter_mode', 'basic')
     unless %w[basic compat].include?(mode)

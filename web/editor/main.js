@@ -63,6 +63,7 @@ const valuesSchema = {
     web_port: { type: 'integer', minimum: 1, maximum: 65535, description: 'Web 控制端口' },
     tun_device: { type: 'string' },
     dns_split_cn_foreign: { type: 'boolean' },
+    ai_ipv4_only: { type: 'boolean', default: false, description: '仅过滤 Mihomo DNS 的 AI 域名 AAAA/HTTPS 回应，普通域名 IPv6 不变。不能控制代理服务器出站或阻止绕过 Mihomo。' },
     group_mode: { enum: ['simple', 'detailed'] },
     'group-mode': { enum: ['simple', 'detailed'] },
     web_secret: { type: 'string' },
